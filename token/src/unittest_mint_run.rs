@@ -59,6 +59,7 @@ mod tests {
             royalty_info: None,
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("alice", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
@@ -74,6 +75,7 @@ mod tests {
             royalty_info: None,
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         let error = extract_error_msg(handle_result);
@@ -89,6 +91,7 @@ mod tests {
             royalty_info: None,
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(handle_result.is_ok());
@@ -168,6 +171,7 @@ mod tests {
             royalty_info: None,
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(handle_result.is_ok());
@@ -204,6 +208,7 @@ mod tests {
             royalty_info: None,
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(handle_result.is_ok());

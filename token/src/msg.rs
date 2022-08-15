@@ -127,6 +127,8 @@ pub enum HandleMsg {
         memo: Option<String>,
         /// optional message length padding
         padding: Option<String>,
+        /// optional tier
+        tier: Option<u8>,
     },
     /// Mint multiple tokens
     BatchMintNft {
@@ -161,6 +163,8 @@ pub enum HandleMsg {
         memo: Option<String>,
         /// optional message length padding
         padding: Option<String>,
+        /// optional tier
+        tier: Option<u8>,
     },
     /// set the tier number
     SetTier {
@@ -451,6 +455,8 @@ pub struct Mint {
     pub transferable: Option<bool>,
     /// optional memo for the tx
     pub memo: Option<String>,
+    /// optinal tier
+    pub tier: Option<u8>,
 }
 
 /// token burn info used when doing a BatchBurnNft

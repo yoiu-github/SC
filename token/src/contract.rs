@@ -152,6 +152,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             royalty_info,
             transferable,
             memo,
+            tier,
             ..
         } => mint(
             deps,
@@ -166,6 +167,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             royalty_info,
             transferable,
             memo,
+            tier,
         ),
         HandleMsg::BatchMintNft { mints, .. } => batch_mint(
             deps,
@@ -182,6 +184,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             private_metadata,
             royalty_info,
             memo,
+            tier,
             ..
         } => mint_clones(
             deps,
@@ -195,6 +198,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             private_metadata,
             royalty_info,
             memo,
+            tier,
         ),
         HandleMsg::SetTier { token_id, tier, .. } => set_tier(
             deps,
@@ -475,6 +479,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 /// * `royalty_info` - optional royalties information for this token
 /// * `transferable` - optionally true if this token is transferable
 /// * `memo` - optional memo for the mint tx
+/// * `tier` - optional tier
 #[allow(clippy::too_many_arguments)]
 pub fn mint<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -489,6 +494,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     royalty_info: Option<RoyaltyInfo>,
     transferable: Option<bool>,
     memo: Option<String>,
+    tier: Option<u8>,
 ) -> HandleResult {
     check_status(config.status, priority)?;
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
@@ -507,6 +513,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         royalty_info,
         transferable,
         memo,
+        tier,
     }];
     let mut minted = mint_list(deps, &env, config, &sender_raw, mints)?;
     let minted_str = minted.pop().unwrap_or_default();
@@ -585,6 +592,7 @@ pub fn mint_clones<S: Storage, A: Api, Q: Querier>(
     private_metadata: Option<Metadata>,
     royalty_info: Option<RoyaltyInfo>,
     memo: Option<String>,
+    tier: Option<u8>,
 ) -> HandleResult {
     check_status(config.status, priority)?;
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
@@ -628,6 +636,7 @@ pub fn mint_clones<S: Storage, A: Api, Q: Querier>(
             royalty_info: royalty_info.clone(),
             transferable: Some(true),
             memo: memo.clone(),
+            tier: tier.clone(),
         });
         serial_number.serial_number += 1;
     }
@@ -4674,12 +4683,14 @@ fn mint_list<S: Storage, A: Api, Q: Querier>(
             sender_raw.clone()
         };
         let transferable = mint.transferable.unwrap_or(true);
+        let tier = mint.tier.unwrap_or(0);
+        check_tier(config, tier)?;
         let token = Token {
             owner: recipient.clone(),
             permissions: Vec::new(),
             unwrapped: !config.sealed_metadata_is_enabled,
             transferable,
-            tier: 0,
+            tier,
         };
 
         // save new token info

@@ -358,6 +358,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
             Mint {
                 token_id: Some("TryDefaultRoys".to_string()),
@@ -368,6 +369,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
         ];
 
@@ -453,6 +455,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
             Mint {
                 token_id: Some("NFT2".to_string()),
@@ -463,6 +466,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
         ];
 
@@ -571,6 +575,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
             Mint {
                 token_id: Some("NFT2".to_string()),
@@ -581,6 +586,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
             Mint {
                 token_id: Some("NFT3".to_string()),
@@ -591,6 +597,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
         ];
 
@@ -705,6 +712,7 @@ mod tests {
             transferable: Some(false),
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(handle_result.is_ok());
@@ -814,6 +822,7 @@ mod tests {
                 transferable: Some(false),
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
             Mint {
                 token_id: Some("NFT2".to_string()),
@@ -824,6 +833,7 @@ mod tests {
                 transferable: None,
                 serial_number: None,
                 memo: None,
+                tier: None,
             },
         ];
 
@@ -903,6 +913,7 @@ mod tests {
             transferable: Some(false),
             memo: None,
             padding: None,
+            tier: None,
         };
         let handle_result = handle(&mut deps, mock_env("admin", &[]), handle_msg);
         assert!(handle_result.is_ok());
