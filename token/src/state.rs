@@ -77,6 +77,8 @@ pub struct Config {
     pub token_cnt: u32,
     /// contract status
     pub status: u8,
+    /// max tier value
+    pub max_tier_value: u8,
     /// are token IDs/count public
     pub token_supply_is_public: bool,
     /// is ownership public

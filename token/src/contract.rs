@@ -80,6 +80,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         tx_cnt: 0,
         token_cnt: 0,
         status: ContractStatus::Normal.to_u8(),
+        max_tier_value: init_config.max_tier_value.unwrap_or(4),
         token_supply_is_public: init_config.public_token_supply.unwrap_or(false),
         owner_is_public: init_config.public_owner.unwrap_or(false),
         sealed_metadata_is_enabled: init_config.enable_sealed_metadata.unwrap_or(false),
@@ -674,7 +675,7 @@ pub fn set_tier<S: Storage, A: Api, Q: Querier>(
     tier: u8,
 ) -> HandleResult {
     check_status(config.status, priority)?;
-    check_tier(tier)?;
+    check_tier(config, tier)?;
     let custom_err = format!("Not authorized to update tier of token {}", token_id);
     // if token supply is private, don't leak that the token id does not exist
     // instead just say they are not authorized for that token
@@ -3705,8 +3706,8 @@ fn check_status(contract_status: u8, priority: u8) -> StdResult<()> {
 /// # Arguments
 ///
 /// * `tier` - u8 representing the tier number
-fn check_tier(tier: u8) -> StdResult<()> {
-    if tier > 4 {
+fn check_tier(config: &Config, tier: u8) -> StdResult<()> {
+    if tier > config.max_tier_value {
         return Err(StdError::generic_err("The tier is out of range"));
     }
 

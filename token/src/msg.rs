@@ -70,6 +70,9 @@ pub struct InitConfig {
     /// Indicates whether burn functionality should be enabled
     /// default: False
     pub enable_burn: Option<bool>,
+    /// max tier value
+    /// default: 4
+    pub max_tier_value: Option<u8>,
 }
 
 impl Default for InitConfig {
@@ -82,6 +85,7 @@ impl Default for InitConfig {
             minter_may_update_metadata: Some(true),
             owner_may_update_metadata: Some(false),
             enable_burn: Some(false),
+            max_tier_value: Some(4),
         }
     }
 }
