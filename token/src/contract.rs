@@ -685,7 +685,7 @@ pub fn set_tier<S: Storage, A: Api, Q: Querier>(
 ) -> HandleResult {
     check_status(config.status, priority)?;
     check_tier(config, tier)?;
-    let custom_err = format!("Not authorized to update tier of token {}", token_id);
+    let custom_err = "Only designated minters are allowed to change tier".to_string();
     // if token supply is private, don't leak that the token id does not exist
     // instead just say they are not authorized for that token
     let opt_err = if config.token_supply_is_public {
@@ -695,7 +695,8 @@ pub fn set_tier<S: Storage, A: Api, Q: Querier>(
     };
     let (mut token, idx) = get_token(&deps.storage, token_id, opt_err)?;
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
-    if config.admin != sender_raw {
+    let minters: Vec<CanonicalAddr> = may_load(&deps.storage, MINTERS_KEY)?.unwrap_or_default();
+    if !minters.contains(&sender_raw) {
         return Err(StdError::generic_err(custom_err));
     }
     token.tier = tier;
