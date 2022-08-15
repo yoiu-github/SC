@@ -674,6 +674,7 @@ pub fn set_tier<S: Storage, A: Api, Q: Querier>(
     tier: u8,
 ) -> HandleResult {
     check_status(config.status, priority)?;
+    check_tier(tier)?;
     let custom_err = format!("Not authorized to update tier of token {}", token_id);
     // if token supply is private, don't leak that the token id does not exist
     // instead just say they are not authorized for that token
@@ -3696,6 +3697,19 @@ fn check_status(contract_status: u8, priority: u8) -> StdResult<()> {
             "The contract admin has temporarily disabled this action",
         ));
     }
+    Ok(())
+}
+
+/// Returns StdResult<()> that will error if the tier number is out of range
+///
+/// # Arguments
+///
+/// * `tier` - u8 representing the tier number
+fn check_tier(tier: u8) -> StdResult<()> {
+    if tier > 4 {
+        return Err(StdError::generic_err("The tier is out of range"));
+    }
+
     Ok(())
 }
 
