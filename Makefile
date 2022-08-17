@@ -1,4 +1,5 @@
-SECRETCLI = docker exec -it secretdev /usr/bin/secretcli
+SECRETCLI := docker exec -it secretdev /usr/bin/secretcli
+WASM_OPT := $(shell wasm-opt --version 2>/dev/null)
 
 .PHONY: all
 all: clippy test
@@ -19,25 +20,23 @@ unit-test:
 	cargo test
 
 .PHONY: integration-test
-integration-test: compile-optimized 
+integration-test: build
 	tests/integration.sh
 
 .PHONY: list-code
 list-code:
 	$(SECRETCLI) query compute list-code
 
-.PHONY: compile _compile
-compile: _compile contract.wasm.gz
-_compile:
-	cargo build --target wasm32-unknown-unknown --locked
-	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./contract.wasm
-
-.PHONY: compile-optimized _compile-optimized
-compile-optimized: _compile-optimized contract.wasm.gz
-_compile-optimized:
+.PHONY: build _build
+build: _build token.wasm.gz
+_build:
 	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked
-	@# The following line is not necessary, may work only on linux (extra size optimization)
-	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/*.wasm -o ./contract.wasm
+ifdef WASM_OPT
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm -o ./build/token.wasm
+else
+	mkdir -p ./build
+	cp ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm ./build/token.wasm
+endif
 
 .PHONY: compile-optimized-reproducible
 compile-optimized-reproducible:
@@ -46,15 +45,13 @@ compile-optimized-reproducible:
 		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
 		enigmampc/secret-contract-optimizer:1.0.6
 
-contract.wasm.gz: contract.wasm
-	cat ./contract.wasm | gzip -9 > ./contract.wasm.gz
+token.wasm.gz: ./build/token.wasm
+	cat ./build/token.wasm | gzip -9 > ./build/token.wasm.gz
 
 .PHONY: start-server
 start-server: # CTRL+C to stop
-	docker run -it --rm \
-		-p 26657:26657 -p 26656:26656 -p 1317:1317 \
-		-v $$(pwd):/root/code \
-		--name secretdev enigmampc/secret-network-sw-dev:latest
+	docker run --rm -it -p 9091:9091 -p 26657:26657 -p 1317:1317 -p 5000:5000 \
+		--name localsecret ghcr.io/scrtlabs/localsecret:v1.4.0-cw-v1-beta.2
 
 .PHONY: schema
 schema:
@@ -63,4 +60,4 @@ schema:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -f ./contract.wasm ./contract.wasm.gz
+	rm -rf ./build/

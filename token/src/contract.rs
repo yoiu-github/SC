@@ -636,7 +636,7 @@ pub fn mint_clones<S: Storage, A: Api, Q: Querier>(
             royalty_info: royalty_info.clone(),
             transferable: Some(true),
             memo: memo.clone(),
-            tier: tier.clone(),
+            tier,
         });
         serial_number.serial_number += 1;
     }
