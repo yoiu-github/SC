@@ -13,22 +13,15 @@ clippy:
 	cargo clippy
 
 .PHONY: test
-test: unit-test integration-test
-
-.PHONY: unit-test
-unit-test:
+test:
 	cargo test
-
-.PHONY: integration-test
-integration-test: build
-	tests/integration.sh
 
 .PHONY: list-code
 list-code:
 	$(SECRETCLI) query compute list-code
 
 .PHONY: build _build
-build: _build token.wasm.gz
+build: _build schema token.wasm.gz
 _build:
 	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked
 ifdef WASM_OPT
