@@ -93,7 +93,17 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2196586ea197eaa21129d09c84a19e2eb80bdce239eec8e6a4f108cb644c295f"
 dependencies = [
- "schemars",
+ "schemars 0.7.6",
+ "serde_json",
+]
+
+[[package]]
+name = "cosmwasm-schema"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "772e80bbad231a47a2068812b723a1ff81dd4a0d56c9391ac748177bea3a61da"
+dependencies = [
+ "schemars 0.8.10",
  "serde_json",
 ]
 
@@ -126,6 +136,12 @@ name = "doc-comment"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
+
+[[package]]
+name = "dyn-clone"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f94fa09c2aeea5b8839e414b7b841bf429fd25b9c522116ac97ee87856d88b2"
 
 [[package]]
 name = "fixed-hash"
@@ -290,7 +306,19 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be77ed66abed6954aabf6a3e31a84706bedbf93750d267e92ef4a6d90bbd6a61"
 dependencies = [
- "schemars_derive",
+ "schemars_derive 0.7.6",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1847b767a3d62d95cbf3d8a9f0e421cf57a0d8aa4f411d4b16525afb0284d4ed"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive 0.8.10",
  "serde",
  "serde_json",
 ]
@@ -303,7 +331,19 @@ checksum = "11af7a475c9ee266cfaa9e303a47c830ebe072bf3101ab907a7b7b9d816fa01d"
 dependencies = [
  "proc-macro2",
  "quote",
- "serde_derive_internals",
+ "serde_derive_internals 0.25.0",
+ "syn",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af4d7e1b012cb3d9129567661a63755ea4b8a7386d339dc945ae187e403c6743"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals 0.26.0",
  "syn",
 ]
 
@@ -314,7 +354,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5d4b8fed972d924458d9c3c0e6c9fbf6c4c5e30655571e3d2b78be056d316e9"
 dependencies = [
  "base64 0.11.0",
- "schemars",
+ "schemars 0.7.6",
  "serde",
  "serde-json-wasm",
  "snafu",
@@ -362,7 +402,7 @@ dependencies = [
  "bech32",
  "remain",
  "ripemd160",
- "schemars",
+ "schemars 0.7.6",
  "secret-cosmwasm-std",
  "secret-toolkit-crypto",
  "serde",
@@ -375,8 +415,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46dbe2e79d6f912a87895e3c83cfda65470f05f7927ab58e398d1e67fb1f4f6a"
 dependencies = [
  "bincode2",
- "schemars",
+ "schemars 0.7.6",
  "secret-cosmwasm-std",
+ "serde",
+]
+
+[[package]]
+name = "secret-toolkit-snip20"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f3f125ba8f44970075d3d6246d715296a223fd055895e136c63f490a4adc472"
+dependencies = [
+ "schemars 0.7.6",
+ "secret-cosmwasm-std",
+ "secret-toolkit-utils",
  "serde",
 ]
 
@@ -398,7 +450,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31d4c330c5aaff6e9c32a0aab082c9dacbd659953b09b16a0419bd120ac32ee3"
 dependencies = [
- "schemars",
+ "schemars 0.7.6",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
  "serde",
@@ -438,6 +490,17 @@ name = "serde_derive_internals"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dbab34ca63057a1f15280bdf3c39f2b1eb1b54c17e98360e511637aef7418c6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85bf8229e7920a9f636479437026331ce11aa132b4dde37d121944a44d6e5f3c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -496,12 +559,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.12.3",
  "bincode2",
- "cosmwasm-schema",
+ "cosmwasm-schema 0.10.1",
  "hex",
  "primitive-types",
  "rand_chacha",
  "rand_core",
- "schemars",
+ "schemars 0.7.6",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
  "secret-toolkit",
@@ -533,6 +596,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tier"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema 1.0.0",
+ "schemars 0.7.6",
+ "secret-cosmwasm-std",
+ "secret-cosmwasm-storage",
+ "secret-toolkit-snip20",
+ "serde",
 ]
 
 [[package]]

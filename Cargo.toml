@@ -1,5 +1,5 @@
 [workspace]
-members = ["token"]
+members = ["contracts/*"]
 
 [profile.release]
 opt-level = 3

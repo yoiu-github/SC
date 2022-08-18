@@ -8,6 +8,7 @@ use snip721_tier_token::msg::{HandleAnswer, HandleMsg, InitMsg, QueryAnswer, Que
 fn main() {
     let mut out_dir = current_dir().unwrap();
     out_dir.push("schema");
+    out_dir.push("token");
     create_dir_all(&out_dir).unwrap();
     remove_schemas(&out_dir).unwrap();
 

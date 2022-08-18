@@ -3,7 +3,11 @@
   "title": "InitMsg",
   "description": "Instantiation message",
   "type": "object",
-  "required": ["entropy", "name", "symbol"],
+  "required": [
+    "entropy",
+    "name",
+    "symbol"
+  ],
   "properties": {
     "admin": {
       "description": "optional admin address, env.message.sender if missing",
@@ -69,7 +73,10 @@
     },
     "Coin": {
       "type": "object",
-      "required": ["amount", "denom"],
+      "required": [
+        "amount",
+        "denom"
+      ],
       "properties": {
         "amount": {
           "$ref": "#/definitions/Uint128"
@@ -88,44 +95,73 @@
       "properties": {
         "enable_burn": {
           "description": "Indicates whether burn functionality should be enabled default: False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "enable_sealed_metadata": {
           "description": "indicates whether sealed metadata should be enabled.  If sealed metadata is enabled, the private metadata is not viewable by anyone, not even the owner, until the owner calls the Reveal function.  When Reveal is called, the sealed metadata is irreversibly moved to the public metadata (as default).  if unwrapped_metadata_is_private is set to true, it will remain as private metadata, but the owner will now be able to see it.  Anyone will be able to query the token to know that it has been unwrapped.  This simulates buying/selling a wrapped card that no one knows which card it is until it is unwrapped. If sealed metadata is not enabled, all tokens are considered unwrapped default:  False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "max_tier_value": {
           "description": "max tier value default: 4",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint8",
-          "minimum": 0
+          "minimum": 0.0
         },
         "minter_may_update_metadata": {
           "description": "indicates whether a minter is permitted to update a token's metadata default: True",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "owner_may_update_metadata": {
           "description": "indicates whether the owner of a token is permitted to update a token's metadata default: False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "public_owner": {
           "description": "indicates whether token ownership is public or private.  A user can still change whether the ownership of their tokens is public or private default: False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "public_token_supply": {
           "description": "indicates whether the token IDs and the number of tokens controlled by the contract are public.  If the token supply is private, only minters can view the token IDs and number of tokens controlled by the contract default: False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "unwrapped_metadata_is_private": {
           "description": "indicates if the Reveal function should keep the sealed metadata private after unwrapping This config value is ignored if sealed metadata is not enabled default: False",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     },
     "PostInitCallback": {
       "description": "info needed to perform a callback message after instantiation",
       "type": "object",
-      "required": ["code_hash", "contract_address", "msg", "send"],
+      "required": [
+        "code_hash",
+        "contract_address",
+        "msg",
+        "send"
+      ],
       "properties": {
         "code_hash": {
           "description": "code hash of the contract to execute",
@@ -159,13 +195,16 @@
     "Royalty": {
       "description": "data for a single royalty",
       "type": "object",
-      "required": ["rate", "recipient"],
+      "required": [
+        "rate",
+        "recipient"
+      ],
       "properties": {
         "rate": {
           "description": "royalty rate",
           "type": "integer",
           "format": "uint16",
-          "minimum": 0
+          "minimum": 0.0
         },
         "recipient": {
           "description": "address to send royalties to",
@@ -180,13 +219,16 @@
     "RoyaltyInfo": {
       "description": "all royalty information",
       "type": "object",
-      "required": ["decimal_places_in_rates", "royalties"],
+      "required": [
+        "decimal_places_in_rates",
+        "royalties"
+      ],
       "properties": {
         "decimal_places_in_rates": {
           "description": "decimal places in royalty rates",
           "type": "integer",
           "format": "uint8",
-          "minimum": 0
+          "minimum": 0.0
         },
         "royalties": {
           "description": "list of royalties",
