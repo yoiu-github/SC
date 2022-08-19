@@ -26,9 +26,18 @@ pub fn config_read<S: Storage>(storage: &S) -> ReadonlySingleton<S, Config> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UserState {
+    Deposit,
+    Withdraw,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct User {
+    pub state: UserState,
     pub deposit_amount: Uint128,
     pub deposit_time: u64,
+    pub withdraw_time: Option<u64>,
 }
 
 pub fn users<S: Storage>(storage: &mut S) -> Bucket<S, User> {

@@ -22,8 +22,8 @@ pub struct InitMsg {
 pub enum HandleMsg {
     Deposit,
     Withdraw,
-    Claim,
-    WithdrawRewards,
+    Claim { recipient: Option<HumanAddr> },
+    WithdrawRewards { recipient: Option<HumanAddr> },
     Redelegate { validator_address: HumanAddr },
 }
 
@@ -32,19 +32,25 @@ pub enum HandleMsg {
 pub enum HandleAnswer {
     Deposit { status: ResponseStatus },
     Withdraw { status: ResponseStatus },
-    UpdateValidator { status: ResponseStatus },
+    Claim { status: ResponseStatus },
+    WithdrawRewards { status: ResponseStatus },
+    Redelegate { status: ResponseStatus },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     TierOf { address: HumanAddr },
-    TierInfo { tier: u8 },
+    DepositOf { address: HumanAddr },
+    WhenCanWithdraw { address: HumanAddr },
+    WhenCanClaim { address: HumanAddr },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     TierOf { tier: u8 },
-    TierInfo { deposit: Uint128, months: u32 },
+    DepositOf { deposit: Uint128 },
+    CanClaim { time: Option<u64> },
+    CanWithdraw { time: Option<u64> },
 }
