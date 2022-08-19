@@ -1,0 +1,9 @@
+[package]
+name = "schema-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cosmwasm-schema = "0.10.1"
+tier = { path = "../tier" }
+snip721-tier-token = { path = "../token" }
