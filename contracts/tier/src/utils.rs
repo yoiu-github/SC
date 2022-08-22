@@ -14,6 +14,19 @@ pub fn assert_owner<A: Api>(api: &A, env: &Env, config: &Config) -> StdResult<()
     Ok(())
 }
 
+pub fn check_validator<Q: Querier>(querier: &Q, validator: &HumanAddr) -> StdResult<()> {
+    let validators = querier.query_validators()?;
+    let has_validator = validators.iter().any(|v| v.address == *validator);
+    if !has_validator {
+        return Err(StdError::generic_err(&format!(
+            "Validator {} not found",
+            validator
+        )));
+    }
+
+    Ok(())
+}
+
 pub fn get_deposit(env: &Env) -> StdResult<u128> {
     let mut funds: u128 = 0;
     for coin in &env.message.sent_funds {
