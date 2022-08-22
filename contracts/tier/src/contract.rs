@@ -4,9 +4,8 @@ use crate::{
     utils,
 };
 use cosmwasm_std::{
-    from_binary, to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse,
-    HandleResult, HumanAddr, InitResponse, InitResult, Querier, QueryResult, StakingMsg, StdError,
-    Storage, Uint128,
+    to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HandleResult, HumanAddr,
+    InitResponse, InitResult, Querier, QueryResult, StakingMsg, StdError, Storage, Uint128,
 };
 
 pub const USCRT: &str = "uscrt";
@@ -141,14 +140,9 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("You have already withdrawn tokens"));
     }
 
-    let when_can_withdraw = query_when_can_withdraw(deps, env.message.sender)?;
-    let withdraw_time = match from_binary(&when_can_withdraw)? {
-        QueryAnswer::CanWithdraw { time } => Ok(time),
-        _ => Err(StdError::generic_err("Query error")),
-    }?;
-
+    let when_can_withdraw = user.can_withdraw_at(&deps.storage)?;
     let current_time = env.block.time;
-    if current_time < withdraw_time.unwrap() {
+    if current_time < when_can_withdraw {
         return Err(StdError::generic_err("You cannot withdraw tokens yet"));
     }
 
@@ -186,8 +180,7 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("You have not withdrawn your tokens"));
     }
 
-    let withdraw_time = user.withdraw_time.unwrap();
-    let claim_time = utils::claim_time(withdraw_time);
+    let claim_time = user.can_claim_at().unwrap();
     let current_time = env.block.time;
 
     if current_time < claim_time {
@@ -335,28 +328,12 @@ pub fn query_when_can_withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
 ) -> QueryResult {
-    let tier_binary = query_tier_of(deps, address.clone())?;
-    let tier = match from_binary(&tier_binary)? {
-        QueryAnswer::TierOf { tier } => Ok(tier),
-        _ => Err(StdError::generic_err("Query error")),
-    }?;
-
-    if tier == 0 {
-        let answer = QueryAnswer::CanWithdraw { time: None };
-        return to_binary(&answer);
-    }
-
-    let tier_index = tier.checked_sub(1).unwrap();
-    let tier_state = Tier::load(&deps.storage, tier_index)?;
-    let months = tier_state.lock_period;
-
     let canonical_address = deps.api.canonical_address(&address)?;
     let user = User::may_load(&deps.storage, &canonical_address)?;
-    let deposit_time = user.map(|u| u.deposit_time).unwrap_or(0);
-    let withdraw_time = utils::withdraw_time(deposit_time, months);
+    let withdraw_time = user.and_then(|u| u.can_withdraw_at(&deps.storage).ok());
 
     let answer = QueryAnswer::CanWithdraw {
-        time: Some(withdraw_time),
+        time: withdraw_time,
     };
 
     to_binary(&answer)
@@ -368,7 +345,7 @@ pub fn query_when_can_claim<S: Storage, A: Api, Q: Querier>(
 ) -> QueryResult {
     let canonical_address = deps.api.canonical_address(&address)?;
     let user = User::may_load(&deps.storage, &canonical_address)?;
-    let claim_time = user.and_then(|u| u.withdraw_time).map(utils::claim_time);
+    let claim_time = user.and_then(|u| u.can_claim_at());
 
     let answer = QueryAnswer::CanClaim { time: claim_time };
     to_binary(&answer)

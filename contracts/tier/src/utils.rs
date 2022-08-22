@@ -1,9 +1,5 @@
 use crate::state::Config;
-use chrono::{TimeZone, Utc};
-use chronoutil::shift_months;
 use cosmwasm_std::{Api, Env, FullDelegation, HumanAddr, Querier, StdError, StdResult};
-
-pub const UNBOUND_LATENCY: u64 = 21 * 24 * 60 * 60;
 
 pub fn assert_owner<A: Api>(api: &A, env: &Env, config: &Config) -> StdResult<()> {
     let owner = api.human_address(&config.owner)?;
@@ -49,15 +45,4 @@ pub fn query_delegation<Q: Querier>(
         Some(delegation) => Ok(delegation),
         None => Err(StdError::generic_err("Cannot query delegation")),
     }
-}
-
-pub fn withdraw_time(deposit_time: u64, months: u32) -> u64 {
-    let months = months.try_into().unwrap();
-    let start_datetime = Utc.timestamp(deposit_time as i64, 0);
-    let end_datetime = shift_months(start_datetime, months);
-    end_datetime.timestamp() as u64
-}
-
-pub fn claim_time(withdraw_time: u64) -> u64 {
-    withdraw_time.checked_add(UNBOUND_LATENCY).unwrap()
 }
