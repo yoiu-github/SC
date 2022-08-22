@@ -79,9 +79,15 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Deposit zero tokens"));
     }
 
-    // todo: deposit after withdraw
     let sender = deps.api.canonical_address(&env.message.sender)?;
     let user_option = users_read(&deps.storage).may_load(sender.as_slice())?;
+
+    if let Some(ref user) = user_option {
+        if user.state != UserState::Deposit {
+            return Err(StdError::generic_err("Claim your tokens first"));
+        }
+    }
+
     let mut user_state = user_option.unwrap_or(User {
         state: UserState::Deposit,
         deposit_amount: Uint128(0),
@@ -92,14 +98,16 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let deposit_amount = user_state.deposit_amount.u128();
     let new_deposit_amount = deposit_amount.checked_add(deposit).unwrap();
     user_state.deposit_amount = Uint128(new_deposit_amount);
+    user_state.deposit_time = env.block.time;
 
     users(&mut deps.storage).save(sender.as_slice(), &user_state)?;
 
     let config_state = config_read(&deps.storage).load()?;
     let coin = Coin::new(deposit, USCRT);
+    let validator = deps.api.human_address(&config_state.validator)?;
 
     let delegate_msg = StakingMsg::Delegate {
-        validator: deps.api.human_address(&config_state.validator)?,
+        validator,
         amount: coin,
     };
 
@@ -212,8 +220,8 @@ pub fn try_withdraw_rewards<S: Storage, A: Api, Q: Querier>(
     let validator = deps.api.human_address(&config_state.validator)?;
     let delegation = utils::query_delegation(&deps.querier, &env, &validator)?;
 
-    let can_withdraw = delegation.accumulated_rewards;
-    if can_withdraw.amount.u128() == 0 {
+    let can_withdraw = delegation.accumulated_rewards.amount.u128();
+    if can_withdraw == 0 {
         return Err(StdError::generic_err("There is nothing to withdraw"));
     }
 
@@ -252,7 +260,16 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
         Ok(state)
     })?;
 
-    let coin = Coin::new(delegation.can_redelegate.amount.u128(), USCRT);
+    let can_redelegate = delegation.can_redelegate.amount.u128();
+    let delegated_amount = delegation.amount.amount.u128();
+
+    if can_redelegate != delegated_amount {
+        return Err(StdError::generic_err(
+            "Cannot redelegate full delegation amount",
+        ));
+    }
+
+    let coin = Coin::new(can_redelegate, USCRT);
     let redelegate_msg = StakingMsg::Redelegate {
         src_validator: old_validator,
         dst_validator: validator_address,
