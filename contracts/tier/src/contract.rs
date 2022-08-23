@@ -91,10 +91,13 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let sender = deps.api.canonical_address(&env.message.sender)?;
     let user_option = User::may_load(&deps.storage, &sender)?;
 
+    let mut current_tier = 0;
     if let Some(ref user) = user_option {
         if user.state != UserState::Deposit {
             return Err(StdError::generic_err("Claim your tokens first"));
         }
+
+        current_tier = user.tier(&deps.storage)?;
     }
 
     let mut user_state = user_option.unwrap_or(User {
@@ -105,10 +108,25 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         address: sender,
     });
 
-    let deposit_amount = user_state.deposit_amount.u128();
-    let new_deposit_amount = deposit_amount.checked_add(deposit).unwrap();
-    user_state.deposit_amount = Uint128(new_deposit_amount);
+    let user_deposit = user_state.deposit_amount.u128();
+    user_state.deposit_amount = Uint128(user_deposit.checked_add(deposit).unwrap());
     user_state.deposit_time = env.block.time;
+
+    let new_tier = user_state.tier(&deps.storage)?;
+    if current_tier == new_tier {
+        let max_tier = Tier::len(&deps.storage)?;
+        if current_tier == max_tier {
+            return Err(StdError::generic_err("Reached max tear"));
+        } else {
+            let next_tier_index = current_tier;
+            let next_tier = Tier::load(&deps.storage, next_tier_index)?;
+            let min_deposit = next_tier.deposit.u128();
+            let expected_deposit = min_deposit.checked_sub(user_deposit).unwrap();
+            let err_msg = format!("You should deposit at least {} USCRT", expected_deposit);
+            return Err(StdError::generic_err(&err_msg));
+        }
+    }
+
     user_state.save(&mut deps.storage)?;
 
     let config_state = Config::load(&deps.storage)?;
@@ -543,21 +561,23 @@ mod tests {
     #[test]
     fn deposit() {
         let alice = HumanAddr::from("alice");
-        let amount = 30;
-        let sent = coins(amount, USCRT);
-
         let mut deps = init_with_default();
-        let mut env = mock_env(alice.clone(), &sent);
+        let alice_canonical = deps.api.canonical_address(&alice).unwrap();
+
+        let mut env = mock_env(alice, &[]);
         env.block.time = current_time();
 
-        let msg = HandleMsg::Deposit;
-        handle(&mut deps, env.clone(), msg).unwrap();
+        env.message.sent_funds = coins(99, USCRT);
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("You should deposit at least 100 USCRT"));
 
-        let alice_canonical = deps.api.canonical_address(&alice).unwrap();
+        env.message.sent_funds = coins(100, USCRT);
+        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+
         let user = User::load(&deps.storage, &alice_canonical).unwrap();
-
         assert_eq!(user.state, UserState::Deposit);
-        assert_eq!(user.deposit_amount.u128(), amount);
+        assert_eq!(user.deposit_amount.u128(), 100);
         assert_eq!(user.deposit_time, env.block.time);
         assert_eq!(user.withdraw_time, None);
     }
