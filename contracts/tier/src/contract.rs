@@ -832,4 +832,50 @@ mod tests {
         let error = extract_error(response);
         assert!(error.contains("Claim your tokens first"));
     }
+
+    #[test]
+    fn claim() {
+        let mut deps = init_with_default();
+        let alice = HumanAddr::from("alice");
+        let alice_canonical = deps.api.canonical_address(&alice).unwrap();
+
+        let claim_time = can_claim_at(&deps, &alice);
+        assert!(claim_time.is_none());
+
+        let mut env = mock_env(alice.clone(), &[]);
+        env.block.time = current_time();
+
+        // Deposit some tokens
+        env.message.sent_funds = coins(750, USCRT);
+        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        env.message.sent_funds = Vec::new();
+
+        let day = 24 * 60 * 60;
+        env.block.time += 5 * day;
+        handle(&mut deps, env.clone(), HandleMsg::Withdraw).unwrap();
+
+        let claim_time = can_claim_at(&deps, &alice).unwrap();
+        assert_eq!(env.block.time + 21 * day, claim_time);
+
+        // Try to claim without waiting for unbound period
+        let claim_msg = HandleMsg::Claim { recipient: None };
+        let response = handle(&mut deps, env.clone(), claim_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Wait for tokens undelegation"));
+
+        env.block.time += 21 * day;
+        let response = handle(&mut deps, env.clone(), claim_msg).unwrap();
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address,
+                to_address: alice,
+                amount: coins(750, USCRT)
+            })
+        );
+
+        let user = User::may_load(&deps.storage, &alice_canonical).unwrap();
+        assert!(user.is_none());
+    }
 }
