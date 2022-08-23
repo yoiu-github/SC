@@ -12,10 +12,11 @@ crate-type = ["cdylib", "rlib"]
 backtraces = ["cosmwasm-std/backtraces"]
 
 [dependencies]
-chrono = "0.4.22"
-chronoutil = "0.2.3"
 cosmwasm-std = { version = "0.10.1", package = "secret-cosmwasm-std", features = ["staking"]}
 cosmwasm-storage = {version = "0.10.0", package = "secret-cosmwasm-storage"}
 schemars = "0.7"
 secret-toolkit-snip20 = "0.3.0"
 serde = "1.0.143"
+
+[dev-dependencies]
+chrono = "0.4.22"

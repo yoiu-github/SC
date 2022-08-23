@@ -14,7 +14,7 @@ pub struct InitMsg {
     pub owner: Option<HumanAddr>,
     pub validator: HumanAddr,
     pub deposits: Vec<Uint128>,
-    pub lock_periods: Vec<u32>,
+    pub lock_periods: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

@@ -1,5 +1,3 @@
-use chrono::{TimeZone, Utc};
-use chronoutil::shift_months;
 use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, singleton, singleton_read};
 use schemars::JsonSchema;
@@ -33,7 +31,7 @@ pub struct Tier {
     #[serde(skip)]
     pub index: u8,
     pub deposit: Uint128,
-    pub lock_period: u32,
+    pub lock_period: u64,
 }
 
 impl Tier {
@@ -129,11 +127,10 @@ impl User {
 
         let tier_index = tier.checked_sub(1).unwrap();
         let tier_state = Tier::load(storage, tier_index)?;
-        let months = tier_state.lock_period.try_into().unwrap();
-
-        let start_datetime = Utc.timestamp(self.deposit_time as i64, 0);
-        let end_datetime = shift_months(start_datetime, months);
-        Ok(end_datetime.timestamp() as u64)
+        Ok(self
+            .deposit_time
+            .checked_add(tier_state.lock_period)
+            .unwrap())
     }
 
     pub fn can_claim_at(&self) -> Option<u64> {
@@ -145,6 +142,7 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
     use cosmwasm_std::{testing::mock_dependencies, Api, HumanAddr};
 
     #[test]
@@ -231,11 +229,12 @@ mod tests {
         let length = 3;
         Tier::set_len(&mut deps.storage, length).unwrap();
 
+        let day = 24u64 * 60 * 60;
         for index in 0..length {
             let tier = Tier {
                 index,
                 deposit: Uint128(10 * (index + 1) as u128),
-                lock_period: (index + 1).into(),
+                lock_period: day * (index as u64 + 1),
             };
 
             tier.save(&mut deps.storage).unwrap();
@@ -261,7 +260,7 @@ mod tests {
             assert_eq!(can_withdraw_at, expected_time as u64);
         }
 
-        expected_time = Utc.ymd(1970, 2, 1).and_hms(0, 0, 0).timestamp();
+        expected_time = Utc.ymd(1970, 1, 2).and_hms(0, 0, 0).timestamp();
         for i in 10..20 {
             user.deposit_amount = Uint128(i);
             let can_withdraw_at = user.can_withdraw_at(&deps.storage).unwrap();
@@ -270,7 +269,7 @@ mod tests {
             assert_eq!(can_withdraw_at, expected_time as u64);
         }
 
-        expected_time = Utc.ymd(1970, 3, 1).and_hms(0, 0, 0).timestamp();
+        expected_time = Utc.ymd(1970, 1, 3).and_hms(0, 0, 0).timestamp();
         for i in 20..30 {
             user.deposit_amount = Uint128(i);
             let can_withdraw_at = user.can_withdraw_at(&deps.storage).unwrap();
@@ -279,7 +278,7 @@ mod tests {
             assert_eq!(can_withdraw_at, expected_time as u64);
         }
 
-        expected_time = Utc.ymd(1970, 4, 1).and_hms(0, 0, 0).timestamp();
+        expected_time = Utc.ymd(1970, 1, 4).and_hms(0, 0, 0).timestamp();
         for i in 30..100 {
             user.deposit_amount = Uint128(i);
             let can_withdraw_at = user.can_withdraw_at(&deps.storage).unwrap();

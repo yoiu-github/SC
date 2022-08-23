@@ -468,7 +468,8 @@ mod tests {
             .map(Into::into)
             .collect();
 
-        let lock_periods = vec![1, 3, 6, 12];
+        let day = 24 * 60 * 60;
+        let lock_periods = vec![2 * day, 5 * day, 14 * day, 31 * day];
         let init_msg = InitMsg {
             owner: Some(owner),
             validator,
@@ -494,7 +495,8 @@ mod tests {
         let owner = HumanAddr::from("admin");
         let validator = HumanAddr::from("validator");
 
-        let lock_periods = vec![1, 3, 6, 12];
+        let day = 24 * 60 * 60;
+        let lock_periods = vec![2 * day, 5 * day, 14 * day, 31 * day];
         let deposits: Vec<Uint128> = vec![100u128, 750, 5000, 20000]
             .into_iter()
             .map(Into::into)
@@ -505,13 +507,12 @@ mod tests {
             .into_iter()
             .map(Into::into)
             .collect();
-        let wrong_lock_periods = vec![3, 1, 6, 12];
 
         let init_msg = InitMsg {
             owner: Some(owner.clone()),
             validator: validator.clone(),
             deposits: wrong_deposits,
-            lock_periods: wrong_lock_periods,
+            lock_periods: lock_periods.clone(),
         };
 
         let response = init_contract(init_msg);
