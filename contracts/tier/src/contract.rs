@@ -63,11 +63,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> HandleResult {
     match msg {
-        HandleMsg::Deposit => try_deposit(deps, env),
-        HandleMsg::Withdraw => try_withdraw(deps, env),
-        HandleMsg::Claim { recipient } => try_claim(deps, env, recipient),
-        HandleMsg::WithdrawRewards { recipient } => try_withdraw_rewards(deps, env, recipient),
-        HandleMsg::Redelegate { validator_address } => try_redelegate(deps, env, validator_address),
+        HandleMsg::Deposit { .. } => try_deposit(deps, env),
+        HandleMsg::Withdraw { .. } => try_withdraw(deps, env),
+        HandleMsg::Claim { recipient, .. } => try_claim(deps, env, recipient),
+        HandleMsg::WithdrawRewards { recipient, .. } => try_withdraw_rewards(deps, env, recipient),
+        HandleMsg::Redelegate {
+            validator_address, ..
+        } => try_redelegate(deps, env, validator_address),
     }
 }
 
@@ -656,17 +658,18 @@ mod tests {
         env.block.time = current_time();
         env.message.sent_funds = coins(99, USCRT);
 
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let deposit_msg = HandleMsg::Deposit { padding: None };
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 100 USCRT"));
 
         env.message.sent_funds = coins(100, "ust");
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Unsopported token"));
 
         env.message.sent_funds = coins(100, USCRT);
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         assert_eq!(response.messages.len(), 1);
         assert_eq!(
             response.messages[0],
@@ -690,12 +693,12 @@ mod tests {
 
         env.block.time += 100;
         env.message.sent_funds = coins(649, USCRT);
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 650 USCRT"));
 
         env.message.sent_funds = coins(5000, USCRT);
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         assert_eq!(response.messages.len(), 2);
         assert_eq!(
             response.messages[0],
@@ -727,12 +730,12 @@ mod tests {
 
         env.block.time += 100;
         env.message.sent_funds = coins(10000, USCRT);
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 15000 USCRT"));
 
         env.message.sent_funds = coins(50000, USCRT);
-        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         assert_eq!(response.messages.len(), 2);
         assert_eq!(
             response.messages[0],
@@ -762,7 +765,7 @@ mod tests {
         let tier = tier_of(&deps, &alice);
         assert_eq!(tier, 4);
 
-        let response = handle(&mut deps, env, HandleMsg::Deposit);
+        let response = handle(&mut deps, env, deposit_msg);
         let error = extract_error(response);
         assert!(error.contains("Reached max tear"));
     }
@@ -780,8 +783,11 @@ mod tests {
         env.block.time = current_time();
         env.message.sent_funds = coins(750, USCRT);
 
+        let deposit_msg = HandleMsg::Deposit { padding: None };
+        let withdraw_msg = HandleMsg::Withdraw { padding: None };
+
         // Deposit some tokens. It will set deposit_time
-        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         assert_eq!(tier_of(&deps, &alice), 2);
         assert_eq!(deposit_of(&deps, &alice), 750);
 
@@ -791,7 +797,7 @@ mod tests {
         assert_eq!(withdraw_time, env.block.time + 5 * day);
 
         // Try to withdraw tokens without waiting for locking period
-        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You cannot withdraw tokens yet"));
 
@@ -799,7 +805,7 @@ mod tests {
         env.block.time += 365 * day;
         env.message.sent_funds = coins(4250, USCRT);
 
-        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         assert_eq!(tier_of(&deps, &alice), 3);
         assert_eq!(deposit_of(&deps, &alice), 5000);
 
@@ -808,27 +814,27 @@ mod tests {
 
         // Try to withdraw tokens after deposit
         env.message.sent_funds = Vec::new();
-        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You cannot withdraw tokens yet"));
 
         // Withdraw tokens successfully
         env.block.time += 14 * day;
         assert_eq!(withdraw_time, env.block.time);
-        handle(&mut deps, env.clone(), HandleMsg::Withdraw).unwrap();
+        handle(&mut deps, env.clone(), withdraw_msg.clone()).unwrap();
 
         let user = User::load(&deps.storage, &alice_canonical).unwrap();
         assert_eq!(user.state, UserState::Withdraw);
         assert_eq!(user.withdraw_time, Some(env.block.time));
 
         // Withdraw tokens twive
-        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let response = handle(&mut deps, env.clone(), withdraw_msg);
         let error = extract_error(response);
         assert!(error.contains("You have already withdrawn tokens"));
 
         // Deposit tokens during withdrawal
         env.message.sent_funds = coins(20000, USCRT);
-        let response = handle(&mut deps, env, HandleMsg::Deposit);
+        let response = handle(&mut deps, env, deposit_msg);
         let error = extract_error(response);
         assert!(error.contains("Claim your tokens first"));
     }
@@ -845,20 +851,26 @@ mod tests {
         let mut env = mock_env(alice.clone(), &[]);
         env.block.time = current_time();
 
+        let deposit_msg = HandleMsg::Deposit { padding: None };
+        let withdraw_msg = HandleMsg::Withdraw { padding: None };
+        let claim_msg = HandleMsg::Claim {
+            recipient: None,
+            padding: None,
+        };
+
         // Deposit some tokens
         env.message.sent_funds = coins(750, USCRT);
-        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        handle(&mut deps, env.clone(), deposit_msg).unwrap();
         env.message.sent_funds = Vec::new();
 
         let day = 24 * 60 * 60;
         env.block.time += 5 * day;
-        handle(&mut deps, env.clone(), HandleMsg::Withdraw).unwrap();
+        handle(&mut deps, env.clone(), withdraw_msg).unwrap();
 
         let claim_time = can_claim_at(&deps, &alice).unwrap();
         assert_eq!(env.block.time + 21 * day, claim_time);
 
         // Try to claim without waiting for unbound period
-        let claim_msg = HandleMsg::Claim { recipient: None };
         let response = handle(&mut deps, env.clone(), claim_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Wait for tokens undelegation"));

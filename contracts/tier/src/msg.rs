@@ -20,11 +20,24 @@ pub struct InitMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
-    Deposit,
-    Withdraw,
-    Claim { recipient: Option<HumanAddr> },
-    WithdrawRewards { recipient: Option<HumanAddr> },
-    Redelegate { validator_address: HumanAddr },
+    Deposit {
+        padding: Option<String>,
+    },
+    Withdraw {
+        padding: Option<String>,
+    },
+    Claim {
+        recipient: Option<HumanAddr>,
+        padding: Option<String>,
+    },
+    WithdrawRewards {
+        recipient: Option<HumanAddr>,
+        padding: Option<String>,
+    },
+    Redelegate {
+        validator_address: HumanAddr,
+        padding: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
