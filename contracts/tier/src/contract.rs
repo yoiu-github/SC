@@ -4,8 +4,9 @@ use crate::{
     utils,
 };
 use cosmwasm_std::{
-    to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HandleResult, HumanAddr,
-    InitResponse, InitResult, Querier, QueryResult, StakingMsg, StdError, Storage, Uint128,
+    coins, to_binary, Api, BankMsg, Coin, CosmosMsg, Env, Extern, HandleResponse, HandleResult,
+    HumanAddr, InitResponse, InitResult, Querier, QueryResult, StakingMsg, StdError, Storage,
+    Uint128,
 };
 
 pub const USCRT: &str = "uscrt";
@@ -108,40 +109,66 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         address: sender,
     });
 
-    let user_deposit = user_state.deposit_amount.u128();
-    user_state.deposit_amount = Uint128(user_deposit.checked_add(deposit).unwrap());
-    user_state.deposit_time = env.block.time;
+    let user_old_deposit = user_state.deposit_amount.u128();
+    user_state.deposit_amount = Uint128(user_old_deposit.checked_add(deposit).unwrap());
 
     let new_tier = user_state.tier(&deps.storage)?;
     if current_tier == new_tier {
         let max_tier = Tier::len(&deps.storage)?;
         if current_tier == max_tier {
             return Err(StdError::generic_err("Reached max tear"));
-        } else {
-            let next_tier_index = current_tier;
-            let next_tier = Tier::load(&deps.storage, next_tier_index)?;
-            let min_deposit = next_tier.deposit.u128();
-            let expected_deposit = min_deposit.checked_sub(user_deposit).unwrap();
-            let err_msg = format!("You should deposit at least {} USCRT", expected_deposit);
-            return Err(StdError::generic_err(&err_msg));
         }
+
+        let next_tier_index = current_tier;
+        let next_tier_state = Tier::load(&deps.storage, next_tier_index)?;
+
+        let min_deposit = next_tier_state.deposit.u128();
+        let expected_deposit = min_deposit.checked_sub(user_old_deposit).unwrap();
+
+        let err_msg = format!("You should deposit at least {} USCRT", expected_deposit);
+        return Err(StdError::generic_err(&err_msg));
     }
 
+    let mut messages = Vec::with_capacity(2);
+    let new_tier_index = new_tier.checked_sub(1).unwrap();
+    let new_tier_state = Tier::load(&deps.storage, new_tier_index)?;
+
+    let tier_deposit = new_tier_state.deposit.u128();
+    let user_deposit = user_state.deposit_amount.u128();
+
+    let refund = user_deposit.checked_sub(tier_deposit).unwrap();
+    if refund != 0 {
+        let amount = coins(refund, USCRT);
+        let send_msg = BankMsg::Send {
+            from_address: env.contract.address,
+            to_address: env.message.sender,
+            amount,
+        };
+
+        let msg = CosmosMsg::Bank(send_msg);
+        messages.push(msg);
+    }
+
+    user_state.deposit_amount = new_tier_state.deposit;
+    user_state.deposit_time = env.block.time;
     user_state.save(&mut deps.storage)?;
 
     let config_state = Config::load(&deps.storage)?;
     let validator = deps.api.human_address(&config_state.validator)?;
-    let amount = Coin::new(deposit, USCRT);
+
+    let deposited = deposit.checked_sub(refund).unwrap();
+    let amount = Coin::new(deposited, USCRT);
 
     let delegate_msg = StakingMsg::Delegate { validator, amount };
     let msg = CosmosMsg::Staking(delegate_msg);
+    messages.push(msg);
 
     let status = to_binary(&HandleAnswer::Deposit {
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
-        messages: vec![msg],
+        messages,
         data: Some(status),
         ..Default::default()
     })
@@ -373,7 +400,7 @@ pub fn query_when_can_claim<S: Storage, A: Api, Q: Querier>(
 mod tests {
     use super::*;
     use cosmwasm_std::{
-        coins,
+        coins, from_binary,
         testing::{mock_dependencies, mock_env, MockApi, MockQuerier},
         Decimal, MemoryStorage, StdResult, Validator,
     };
@@ -418,6 +445,19 @@ mod tests {
         env.block.time = current_time();
 
         init(&mut deps, env, init_msg).map(|_| deps)
+    }
+
+    fn tier_of(deps: &Extern<MemoryStorage, MockApi, MockQuerier>, address: &HumanAddr) -> u8 {
+        let msg = QueryMsg::TierOf {
+            address: address.clone(),
+        };
+
+        let tier_binary = query(deps, msg).unwrap();
+        let tier = from_binary(&tier_binary).unwrap();
+        match tier {
+            QueryAnswer::TierOf { tier } => tier,
+            _ => panic!("Wrong query"),
+        }
     }
 
     fn init_with_default() -> Extern<MemoryStorage, MockApi, MockQuerier> {
@@ -560,25 +600,116 @@ mod tests {
 
     #[test]
     fn deposit() {
-        let alice = HumanAddr::from("alice");
         let mut deps = init_with_default();
+        let alice = HumanAddr::from("alice");
         let alice_canonical = deps.api.canonical_address(&alice).unwrap();
 
-        let mut env = mock_env(alice, &[]);
-        env.block.time = current_time();
+        let tier = tier_of(&deps, &alice);
+        assert_eq!(tier, 0);
 
+        let mut env = mock_env(alice.clone(), &[]);
+        env.block.time = current_time();
         env.message.sent_funds = coins(99, USCRT);
+
         let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 100 USCRT"));
 
+        env.message.sent_funds = coins(100, "ust");
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("Unsopported token"));
+
         env.message.sent_funds = coins(100, USCRT);
-        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Staking(StakingMsg::Delegate {
+                validator: HumanAddr::from("validator"),
+                amount: Coin::new(100, USCRT)
+            })
+        );
 
         let user = User::load(&deps.storage, &alice_canonical).unwrap();
         assert_eq!(user.state, UserState::Deposit);
         assert_eq!(user.deposit_amount.u128(), 100);
         assert_eq!(user.deposit_time, env.block.time);
         assert_eq!(user.withdraw_time, None);
+
+        let tier = tier_of(&deps, &alice);
+        assert_eq!(tier, 1);
+
+        env.block.time += 100;
+        env.message.sent_funds = coins(649, USCRT);
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("You should deposit at least 650 USCRT"));
+
+        env.message.sent_funds = coins(5000, USCRT);
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        assert_eq!(response.messages.len(), 2);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address.clone(),
+                to_address: alice.clone(),
+                amount: coins(100, USCRT),
+            })
+        );
+        assert_eq!(
+            response.messages[1],
+            CosmosMsg::Staking(StakingMsg::Delegate {
+                validator: HumanAddr::from("validator"),
+                amount: Coin::new(4900, USCRT)
+            })
+        );
+
+        let user = User::load(&deps.storage, &alice_canonical).unwrap();
+        assert_eq!(user.state, UserState::Deposit);
+        assert_eq!(user.deposit_amount.u128(), 5000);
+        assert_eq!(user.deposit_time, env.block.time);
+        assert_eq!(user.withdraw_time, None);
+
+        let tier = tier_of(&deps, &alice);
+        assert_eq!(tier, 3);
+
+        env.block.time += 100;
+        env.message.sent_funds = coins(10000, USCRT);
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("You should deposit at least 15000 USCRT"));
+
+        env.message.sent_funds = coins(50000, USCRT);
+        let response = handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        assert_eq!(response.messages.len(), 2);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address.clone(),
+                to_address: alice.clone(),
+                amount: coins(35000, USCRT),
+            })
+        );
+        assert_eq!(
+            response.messages[1],
+            CosmosMsg::Staking(StakingMsg::Delegate {
+                validator: HumanAddr::from("validator"),
+                amount: Coin::new(15000, USCRT)
+            })
+        );
+
+        let user = User::load(&deps.storage, &alice_canonical).unwrap();
+        assert_eq!(user.state, UserState::Deposit);
+        assert_eq!(user.deposit_amount.u128(), 20000);
+        assert_eq!(user.deposit_time, env.block.time);
+        assert_eq!(user.withdraw_time, None);
+
+        let tier = tier_of(&deps, &alice);
+        assert_eq!(tier, 4);
+
+        let response = handle(&mut deps, env, HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("Reached max tear"));
     }
 }
