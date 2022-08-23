@@ -452,10 +452,51 @@ mod tests {
             address: address.clone(),
         };
 
-        let tier_binary = query(deps, msg).unwrap();
-        let tier = from_binary(&tier_binary).unwrap();
-        match tier {
+        let answer = query(deps, msg).unwrap();
+        match from_binary(&answer).unwrap() {
             QueryAnswer::TierOf { tier } => tier,
+            _ => panic!("Wrong query"),
+        }
+    }
+
+    fn deposit_of(deps: &Extern<MemoryStorage, MockApi, MockQuerier>, address: &HumanAddr) -> u128 {
+        let msg = QueryMsg::DepositOf {
+            address: address.clone(),
+        };
+
+        let answer = query(deps, msg).unwrap();
+        match from_binary(&answer).unwrap() {
+            QueryAnswer::DepositOf { deposit } => deposit.u128(),
+            _ => panic!("Wrong query"),
+        }
+    }
+
+    fn can_withdraw_at(
+        deps: &Extern<MemoryStorage, MockApi, MockQuerier>,
+        address: &HumanAddr,
+    ) -> Option<u64> {
+        let msg = QueryMsg::WhenCanWithdraw {
+            address: address.clone(),
+        };
+
+        let answer = query(deps, msg).unwrap();
+        match from_binary(&answer).unwrap() {
+            QueryAnswer::CanWithdraw { time } => time,
+            _ => panic!("Wrong query"),
+        }
+    }
+
+    fn can_claim_at(
+        deps: &Extern<MemoryStorage, MockApi, MockQuerier>,
+        address: &HumanAddr,
+    ) -> Option<u64> {
+        let msg = QueryMsg::WhenCanClaim {
+            address: address.clone(),
+        };
+
+        let answer = query(deps, msg).unwrap();
+        match from_binary(&answer).unwrap() {
+            QueryAnswer::CanClaim { time } => time,
             _ => panic!("Wrong query"),
         }
     }
@@ -608,6 +649,9 @@ mod tests {
         let tier = tier_of(&deps, &alice);
         assert_eq!(tier, 0);
 
+        let deposit = deposit_of(&deps, &alice);
+        assert_eq!(deposit, 0);
+
         let mut env = mock_env(alice.clone(), &[]);
         env.block.time = current_time();
         env.message.sent_funds = coins(99, USCRT);
@@ -637,6 +681,9 @@ mod tests {
         assert_eq!(user.deposit_amount.u128(), 100);
         assert_eq!(user.deposit_time, env.block.time);
         assert_eq!(user.withdraw_time, None);
+
+        let deposit = deposit_of(&deps, &alice);
+        assert_eq!(deposit, 100);
 
         let tier = tier_of(&deps, &alice);
         assert_eq!(tier, 1);
@@ -672,6 +719,9 @@ mod tests {
         assert_eq!(user.deposit_time, env.block.time);
         assert_eq!(user.withdraw_time, None);
 
+        let deposit = deposit_of(&deps, &alice);
+        assert_eq!(deposit, 5000);
+
         let tier = tier_of(&deps, &alice);
         assert_eq!(tier, 3);
 
@@ -700,6 +750,9 @@ mod tests {
             })
         );
 
+        let deposit = deposit_of(&deps, &alice);
+        assert_eq!(deposit, 20000);
+
         let user = User::load(&deps.storage, &alice_canonical).unwrap();
         assert_eq!(user.state, UserState::Deposit);
         assert_eq!(user.deposit_amount.u128(), 20000);
@@ -712,5 +765,71 @@ mod tests {
         let response = handle(&mut deps, env, HandleMsg::Deposit);
         let error = extract_error(response);
         assert!(error.contains("Reached max tear"));
+    }
+
+    #[test]
+    fn withdraw() {
+        let mut deps = init_with_default();
+        let alice = HumanAddr::from("alice");
+        let alice_canonical = deps.api.canonical_address(&alice).unwrap();
+
+        let withdraw_time = can_withdraw_at(&deps, &alice);
+        assert!(withdraw_time.is_none());
+
+        let mut env = mock_env(alice.clone(), &[]);
+        env.block.time = current_time();
+        env.message.sent_funds = coins(750, USCRT);
+
+        // Deposit some tokens. It will set deposit_time
+        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        assert_eq!(tier_of(&deps, &alice), 2);
+        assert_eq!(deposit_of(&deps, &alice), 750);
+
+        let day = 24 * 60 * 60;
+        env.message.sent_funds = Vec::new();
+        let withdraw_time = can_withdraw_at(&deps, &alice).unwrap();
+        assert_eq!(withdraw_time, env.block.time + 5 * day);
+
+        // Try to withdraw tokens without waiting for locking period
+        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let error = extract_error(response);
+        assert!(error.contains("You cannot withdraw tokens yet"));
+
+        // Deposit some tokens. It will reset deposit_time
+        env.block.time += 365 * day;
+        env.message.sent_funds = coins(4250, USCRT);
+
+        handle(&mut deps, env.clone(), HandleMsg::Deposit).unwrap();
+        assert_eq!(tier_of(&deps, &alice), 3);
+        assert_eq!(deposit_of(&deps, &alice), 5000);
+
+        let withdraw_time = can_withdraw_at(&deps, &alice).unwrap();
+        assert_eq!(withdraw_time, env.block.time + 14 * day);
+
+        // Try to withdraw tokens after deposit
+        env.message.sent_funds = Vec::new();
+        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let error = extract_error(response);
+        assert!(error.contains("You cannot withdraw tokens yet"));
+
+        // Withdraw tokens successfully
+        env.block.time += 14 * day;
+        assert_eq!(withdraw_time, env.block.time);
+        handle(&mut deps, env.clone(), HandleMsg::Withdraw).unwrap();
+
+        let user = User::load(&deps.storage, &alice_canonical).unwrap();
+        assert_eq!(user.state, UserState::Withdraw);
+        assert_eq!(user.withdraw_time, Some(env.block.time));
+
+        // Withdraw tokens twive
+        let response = handle(&mut deps, env.clone(), HandleMsg::Withdraw);
+        let error = extract_error(response);
+        assert!(error.contains("You have already withdrawn tokens"));
+
+        // Deposit tokens during withdrawal
+        env.message.sent_funds = coins(20000, USCRT);
+        let response = handle(&mut deps, env, HandleMsg::Deposit);
+        let error = extract_error(response);
+        assert!(error.contains("Claim your tokens first"));
     }
 }
