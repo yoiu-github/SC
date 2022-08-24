@@ -354,24 +354,10 @@ pub fn query_tier_of<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
 ) -> QueryResult {
-    let mut tier = 0u8;
     let canonical_address = deps.api.canonical_address(&address)?;
     let user = User::may_load(&deps.storage, &canonical_address)?;
 
-    if let Some(user) = user {
-        let user_deposit = user.deposit_amount.u128();
-        let tier_len = Tier::len(&deps.storage)?;
-
-        for i in 0..tier_len {
-            let tier_state = Tier::load(&deps.storage, i)?;
-            if user_deposit < tier_state.deposit.u128() {
-                break;
-            } else {
-                tier = tier.checked_add(1).unwrap();
-            }
-        }
-    }
-
+    let tier = user.and_then(|u| u.tier(&deps.storage).ok()).unwrap_or(0);
     let answer = QueryAnswer::TierOf { tier };
     to_binary(&answer)
 }
@@ -819,6 +805,7 @@ mod tests {
         let user = User::load(&deps.storage, &alice_canonical).unwrap();
         assert_eq!(user.state, UserState::Withdraw);
         assert_eq!(user.withdraw_time, Some(env.block.time));
+        assert_eq!(tier_of(&deps, &alice), 0);
 
         // Withdraw tokens twive
         let response = handle(&mut deps, env.clone(), withdraw_msg);

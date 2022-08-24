@@ -103,6 +103,10 @@ impl User {
         let length = Tier::len(storage)?;
         let mut tier = 0;
 
+        if self.state == UserState::Withdraw {
+            return Ok(0);
+        }
+
         for index in 0..length {
             let tier_state = Tier::load(storage, index)?;
             let deposit = self.deposit_amount.u128();
