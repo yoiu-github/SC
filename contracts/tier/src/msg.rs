@@ -10,6 +10,7 @@ pub enum ResponseStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     pub owner: Option<HumanAddr>,
     pub validator: HumanAddr,

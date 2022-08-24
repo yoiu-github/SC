@@ -1,6 +1,5 @@
-use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
+use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, singleton, singleton_read};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_KEY: &[u8] = b"config";
@@ -9,10 +8,10 @@ pub const TIER_PREFIX: &[u8] = b"tier";
 pub const TIER_LEN_PREFIX: &[u8] = b"tier_len";
 pub const UNBOUND_LATENCY: u64 = 21 * 24 * 60 * 60;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub owner: CanonicalAddr,
-    pub validator: CanonicalAddr,
+    pub validator: HumanAddr,
 }
 
 impl Config {
@@ -25,8 +24,7 @@ impl Config {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tier {
     #[serde(skip)]
     pub index: u8,
@@ -56,14 +54,13 @@ impl Tier {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum UserState {
     Deposit,
     Withdraw,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct User {
     #[serde(skip)]
     pub address: CanonicalAddr,
@@ -153,7 +150,7 @@ mod tests {
 
         let config = Config {
             owner: deps.api.canonical_address(&owner).unwrap(),
-            validator: deps.api.canonical_address(&validator).unwrap(),
+            validator,
         };
 
         config.save(&mut deps.storage).unwrap();

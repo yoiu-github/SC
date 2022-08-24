@@ -37,8 +37,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let owner = msg.owner.unwrap_or(env.message.sender);
     let initial_config = Config {
         owner: deps.api.canonical_address(&owner)?,
-        validator: deps.api.canonical_address(&msg.validator)?,
+        validator: msg.validator,
     };
+
     initial_config.save(&mut deps.storage)?;
 
     let length = deposits.len().try_into().unwrap();
@@ -158,7 +159,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     user_state.save(&mut deps.storage)?;
 
     let config_state = Config::load(&deps.storage)?;
-    let validator = deps.api.human_address(&config_state.validator)?;
+    let validator = config_state.validator;
 
     let deposited = deposit.checked_sub(refund).unwrap();
     let amount = Coin::new(deposited, USCRT);
@@ -200,7 +201,7 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     user.save(&mut deps.storage)?;
 
     let config_state = Config::load(&deps.storage)?;
-    let validator = deps.api.human_address(&config_state.validator)?;
+    let validator = config_state.validator;
     let amount = Coin::new(user.deposit_amount.u128(), USCRT);
 
     let withdraw_msg = StakingMsg::Undelegate { validator, amount };
@@ -266,7 +267,7 @@ pub fn try_withdraw_rewards<S: Storage, A: Api, Q: Querier>(
     let config_state = Config::load(&deps.storage)?;
     utils::assert_owner(&deps.api, &env, &config_state)?;
 
-    let validator = deps.api.human_address(&config_state.validator)?;
+    let validator = config_state.validator;
     let delegation = utils::query_delegation(&deps.querier, &env, &validator)?;
 
     let can_withdraw = delegation.accumulated_rewards.amount.u128();
@@ -302,7 +303,7 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
     let mut config_state = Config::load(&deps.storage)?;
     utils::assert_owner(&deps.api, &env, &config_state)?;
 
-    let old_validator = deps.api.human_address(&config_state.validator)?;
+    let old_validator = config_state.validator;
     let delegation = utils::query_delegation(&deps.querier, &env, &old_validator)?;
 
     let can_withdraw = delegation.accumulated_rewards.amount.u128();
@@ -315,7 +316,7 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    config_state.validator = deps.api.canonical_address(&validator_address)?;
+    config_state.validator = validator_address.clone();
     config_state.save(&mut deps.storage)?;
 
     let mut messages = Vec::with_capacity(2);
@@ -530,7 +531,7 @@ mod tests {
     #[test]
     fn initialization() {
         let owner = HumanAddr::from("admin");
-        let validator = HumanAddr::from("validator");
+        let validator = HumanAddr::from("secretvaloper1l92u46n0d33mhkknwm7zpg0twlqqxg826990re");
 
         let day = 24 * 60 * 60;
         let lock_periods = vec![2 * day, 5 * day, 14 * day, 31 * day];
@@ -603,11 +604,10 @@ mod tests {
         let deps = init_contract(init_msg).unwrap();
         let config = Config::load(&deps.storage).unwrap();
         let canonical_owner = deps.api.canonical_address(&owner).unwrap();
-        let canonical_validator = deps.api.canonical_address(&validator).unwrap();
         let length = Tier::len(&deps.storage).unwrap();
 
         assert_eq!(config.owner, canonical_owner);
-        assert_eq!(config.validator, canonical_validator);
+        assert_eq!(config.validator, validator);
         assert_eq!(length, deposits.len() as u8);
 
         for index in 0..length {
@@ -630,10 +630,9 @@ mod tests {
         let deps = init_contract(init_msg).unwrap();
         let config = Config::load(&deps.storage).unwrap();
         let canonical_alice = deps.api.canonical_address(&alice).unwrap();
-        let canonical_validator = deps.api.canonical_address(&validator).unwrap();
 
         assert_eq!(config.owner, canonical_alice);
-        assert_eq!(config.validator, canonical_validator);
+        assert_eq!(config.validator, validator);
     }
 
     #[test]
