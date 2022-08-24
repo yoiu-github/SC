@@ -307,6 +307,10 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
     let old_validator = config_state.validator;
     let delegation = utils::query_delegation(&deps.querier, &env, &old_validator)?;
 
+    if old_validator == validator_address {
+        return Err(StdError::generic_err("Redelegation to the same validator"));
+    }
+
     let can_withdraw = delegation.accumulated_rewards.amount.u128();
     let can_redelegate = delegation.can_redelegate.amount.u128();
     let delegated_amount = delegation.amount.amount.u128();
