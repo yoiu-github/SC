@@ -383,15 +383,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
-name = "schema-builder"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "snip721-tier-token",
- "tier",
-]
-
-[[package]]
 name = "schemars"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -615,6 +606,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.12.3",
  "bincode2",
+ "cosmwasm-schema",
  "hex",
  "primitive-types",
  "rand_chacha",
@@ -658,6 +650,7 @@ name = "tier"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cosmwasm-schema",
  "schemars",
  "secret-cosmwasm-std",
  "secret-cosmwasm-storage",
