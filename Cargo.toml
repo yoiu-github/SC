@@ -2,6 +2,7 @@
 members = ["contracts/*"]
 
 [profile.release]
+strip = true
 opt-level = 3
 debug = false
 rpath = false

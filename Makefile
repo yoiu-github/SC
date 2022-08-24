@@ -23,13 +23,13 @@ list-code:
 .PHONY: build _build
 build: _build schema
 _build:
-	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked --package snip721-tier-token
-	RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown --locked --package tier
+	cargo build --release --target wasm32-unknown-unknown --locked --package snip721-tier-token
+	cargo build --release --target wasm32-unknown-unknown --locked --package tier
+	mkdir --parents ./build
 ifdef WASM_OPT
 	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm -o ./build/token.wasm
 	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/tier.wasm -o ./build/tier.wasm
 else
-	mkdir -p ./build
 	cp ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm ./build/token.wasm
 	cp ./target/wasm32-unknown-unknown/release/tier.wasm ./build/tier.wasm
 endif
@@ -49,7 +49,7 @@ start-server: # CTRL+C to stop
 
 .PHONY: schema
 schema:
-	cargo run --bin schema-builder
+	cargo run --release --bin schema-builder
 
 .PHONY: clean
 clean:
