@@ -5,6 +5,17 @@
     {
       "type": "object",
       "required": [
+        "tier_info"
+      ],
+      "properties": {
+        "tier_info": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "tier_of"
       ],
       "properties": {

@@ -78,6 +78,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
+        QueryMsg::TierInfo {} => query_tier_info(deps),
         QueryMsg::TierOf { address } => query_tier_of(deps, address),
         QueryMsg::DepositOf { address } => query_deposit_of(deps, address),
         QueryMsg::WhenCanWithdraw { address } => query_when_can_withdraw(deps, address),
@@ -348,6 +349,28 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
         data: Some(status),
         ..Default::default()
     })
+}
+
+pub fn query_tier_info<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> QueryResult {
+    let config = Config::load(&deps.storage)?;
+    let owner = deps.api.human_address(&config.owner)?;
+    let validator = config.validator;
+
+    let tier_len = Tier::len(&deps.storage)?;
+    let mut tier_list = Vec::with_capacity(tier_len.into());
+
+    for index in 0..tier_len {
+        let tier_state = Tier::load(&deps.storage, index)?;
+        tier_list.push(tier_state);
+    }
+
+    let answer = QueryAnswer::TierInfo {
+        owner,
+        validator,
+        tier_list,
+    };
+
+    to_binary(&answer)
 }
 
 pub fn query_tier_of<S: Storage, A: Api, Q: Querier>(

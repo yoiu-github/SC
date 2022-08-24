@@ -1,3 +1,4 @@
+use crate::state::Tier;
 use cosmwasm_std::{HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,7 @@ pub enum HandleAnswer {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    TierInfo {},
     TierOf { address: HumanAddr },
     DepositOf { address: HumanAddr },
     WhenCanWithdraw { address: HumanAddr },
@@ -64,8 +66,21 @@ pub enum QueryMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
-    TierOf { tier: u8 },
-    DepositOf { deposit: Uint128 },
-    CanClaim { time: Option<u64> },
-    CanWithdraw { time: Option<u64> },
+    TierInfo {
+        owner: HumanAddr,
+        validator: HumanAddr,
+        tier_list: Vec<Tier>,
+    },
+    TierOf {
+        tier: u8,
+    },
+    DepositOf {
+        deposit: Uint128,
+    },
+    CanClaim {
+        time: Option<u64>,
+    },
+    CanWithdraw {
+        time: Option<u64>,
+    },
 }

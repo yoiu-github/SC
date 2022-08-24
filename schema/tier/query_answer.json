@@ -5,6 +5,36 @@
     {
       "type": "object",
       "required": [
+        "tier_info"
+      ],
+      "properties": {
+        "tier_info": {
+          "type": "object",
+          "required": [
+            "owner",
+            "tier_list",
+            "validator"
+          ],
+          "properties": {
+            "owner": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "tier_list": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tier"
+              }
+            },
+            "validator": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "tier_of"
       ],
       "properties": {
@@ -86,6 +116,26 @@
     }
   ],
   "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Tier": {
+      "type": "object",
+      "required": [
+        "deposit",
+        "lock_period"
+      ],
+      "properties": {
+        "deposit": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "lock_period": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
     "Uint128": {
       "type": "string"
     }

@@ -1,5 +1,6 @@
 use cosmwasm_std::{CanonicalAddr, HumanAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, singleton, singleton_read};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_KEY: &[u8] = b"config";
@@ -24,7 +25,8 @@ impl Config {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct Tier {
     #[serde(skip)]
     pub index: u8,
