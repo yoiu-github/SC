@@ -68,8 +68,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::Claim { recipient, .. } => try_claim(deps, env, recipient),
         HandleMsg::WithdrawRewards { recipient, .. } => try_withdraw_rewards(deps, env, recipient),
         HandleMsg::Redelegate {
-            validator_address, ..
-        } => try_redelegate(deps, env, validator_address),
+            validator_address,
+            recipient,
+            ..
+        } => try_redelegate(deps, env, validator_address, recipient),
     }
 }
 
@@ -295,6 +297,7 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     validator_address: HumanAddr,
+    recipient: Option<HumanAddr>,
 ) -> HandleResult {
     let mut config_state = Config::load(&deps.storage)?;
     utils::assert_owner(&deps.api, &env, &config_state)?;
@@ -302,6 +305,7 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
     let old_validator = deps.api.human_address(&config_state.validator)?;
     let delegation = utils::query_delegation(&deps.querier, &env, &old_validator)?;
 
+    let can_withdraw = delegation.accumulated_rewards.amount.u128();
     let can_redelegate = delegation.can_redelegate.amount.u128();
     let delegated_amount = delegation.amount.amount.u128();
 
@@ -314,6 +318,18 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
     config_state.validator = deps.api.canonical_address(&validator_address)?;
     config_state.save(&mut deps.storage)?;
 
+    let mut messages = Vec::with_capacity(2);
+    if can_withdraw != 0 {
+        let owner = deps.api.human_address(&config_state.owner)?;
+        let recipient = recipient.unwrap_or(owner);
+        let withdraw_msg = StakingMsg::Withdraw {
+            validator: old_validator.clone(),
+            recipient: Some(recipient),
+        };
+
+        messages.push(CosmosMsg::Staking(withdraw_msg));
+    }
+
     let coin = Coin::new(can_redelegate, USCRT);
     let redelegate_msg = StakingMsg::Redelegate {
         src_validator: old_validator,
@@ -321,13 +337,13 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
         amount: coin,
     };
 
-    let msg = CosmosMsg::Staking(redelegate_msg);
+    messages.push(CosmosMsg::Staking(redelegate_msg));
     let status = to_binary(&HandleAnswer::Redelegate {
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
-        messages: vec![msg],
+        messages,
         data: Some(status),
         ..Default::default()
     })
@@ -404,7 +420,7 @@ mod tests {
     use cosmwasm_std::{
         coins, from_binary,
         testing::{mock_dependencies, mock_env, MockApi, MockQuerier},
-        Decimal, MemoryStorage, StdResult, Validator,
+        FullDelegation, MemoryStorage, StdResult,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -421,29 +437,6 @@ mod tests {
         let balance = coins(1000, USCRT);
         let mut deps = mock_dependencies(20, &[]);
         let mut env = mock_env("admin", &balance);
-
-        let validators = vec![
-            Validator {
-                address: HumanAddr::from("validator"),
-                commission: Decimal::percent(1),
-                max_commission: Decimal::percent(10),
-                max_change_rate: Decimal::percent(15),
-            },
-            Validator {
-                address: HumanAddr::from("validator1"),
-                commission: Decimal::percent(5),
-                max_commission: Decimal::percent(30),
-                max_change_rate: Decimal::percent(2),
-            },
-            Validator {
-                address: HumanAddr::from("validator2"),
-                commission: Decimal::percent(10),
-                max_commission: Decimal::percent(50),
-                max_change_rate: Decimal::percent(4),
-            },
-        ];
-
-        deps.querier.update_staking(USCRT, &validators, &Vec::new());
         env.block.time = current_time();
 
         init(&mut deps, env, init_msg).map(|_| deps)
@@ -528,6 +521,7 @@ mod tests {
             Ok(_) => panic!("Response is not an error"),
             Err(err) => match err {
                 StdError::GenericErr { msg, .. } => msg,
+                StdError::Unauthorized { .. } => "Unauthorized".into(),
                 _ => panic!("Unexpected error"),
             },
         }
@@ -870,7 +864,7 @@ mod tests {
         let claim_time = can_claim_at(&deps, &alice).unwrap();
         assert_eq!(env.block.time + 21 * day, claim_time);
 
-        // Try to claim without waiting for unbound period
+        // Try to claim without waiting for unbond period
         let response = handle(&mut deps, env.clone(), claim_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Wait for tokens undelegation"));
@@ -889,5 +883,131 @@ mod tests {
 
         let user = User::may_load(&deps.storage, &alice_canonical).unwrap();
         assert!(user.is_none());
+    }
+
+    #[test]
+    fn redelegate() {
+        let mut deps = init_with_default();
+        let admin = HumanAddr::from("admin");
+        let alice = HumanAddr::from("alice");
+        let validator = HumanAddr::from("validator");
+        let new_validator = HumanAddr::from("new_validator");
+
+        let mut env = mock_env(alice, &[]);
+        env.block.time = current_time();
+
+        let redelegate_msg = HandleMsg::Redelegate {
+            validator_address: new_validator.clone(),
+            recipient: None,
+            padding: None,
+        };
+
+        // Alice calls redelegate
+        let response = handle(&mut deps, env.clone(), redelegate_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let delegated_amount = 1000000;
+        let accumulated_rewards = 10000;
+
+        // Can redelegate = 0
+        let mut delegation = FullDelegation {
+            delegator: env.contract.address.clone(),
+            validator: validator.clone(),
+            amount: Coin::new(delegated_amount, USCRT),
+            accumulated_rewards: Coin::new(accumulated_rewards, USCRT),
+            can_redelegate: Coin::new(0, USCRT),
+        };
+
+        deps.querier
+            .update_staking(USCRT, &[], &[delegation.clone()]);
+
+        env.message.sender = admin.clone();
+        let response = handle(&mut deps, env.clone(), redelegate_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Cannot redelegate full delegation amount"));
+
+        // Can redelegate != delegated_amount
+        delegation.can_redelegate = Coin::new(500, USCRT);
+        deps.querier
+            .update_staking(USCRT, &[], &[delegation.clone()]);
+
+        let response = handle(&mut deps, env.clone(), redelegate_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Cannot redelegate full delegation amount"));
+
+        // Can redelegate full amount
+        delegation.can_redelegate = Coin::new(delegated_amount, USCRT);
+        deps.querier.update_staking(USCRT, &[], &[delegation]);
+
+        let response = handle(&mut deps, env, redelegate_msg).unwrap();
+        assert_eq!(response.messages.len(), 2);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Staking(StakingMsg::Withdraw {
+                validator: validator.clone(),
+                recipient: Some(admin)
+            })
+        );
+        assert_eq!(
+            response.messages[1],
+            CosmosMsg::Staking(StakingMsg::Redelegate {
+                src_validator: validator,
+                dst_validator: new_validator,
+                amount: Coin::new(delegated_amount, USCRT),
+            })
+        );
+    }
+
+    #[test]
+    fn withdraw_rewards() {
+        let mut deps = init_with_default();
+        let admin = HumanAddr::from("admin");
+        let alice = HumanAddr::from("alice");
+        let validator = HumanAddr::from("validator");
+
+        let mut env = mock_env(alice, &[]);
+        env.block.time = current_time();
+
+        let mut delegation = FullDelegation {
+            delegator: env.contract.address.clone(),
+            validator: validator.clone(),
+            amount: Coin::new(0, USCRT),
+            accumulated_rewards: Coin::new(0, USCRT),
+            can_redelegate: Coin::new(0, USCRT),
+        };
+
+        deps.querier
+            .update_staking(USCRT, &[], &[delegation.clone()]);
+
+        let withdraw_rewards_msg = HandleMsg::WithdrawRewards {
+            recipient: None,
+            padding: None,
+        };
+
+        // Alice tries to withdraw
+        let response = handle(&mut deps, env.clone(), withdraw_rewards_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        // Nothing to withdraw
+        env.message.sender = admin.clone();
+        let response = handle(&mut deps, env.clone(), withdraw_rewards_msg.clone());
+        let error = extract_error(response);
+        println!("{}", error);
+        assert!(error.contains("There is nothing to withdraw"));
+
+        delegation.accumulated_rewards = Coin::new(1, USCRT);
+        deps.querier.update_staking(USCRT, &[], &[delegation]);
+
+        let response = handle(&mut deps, env, withdraw_rewards_msg).unwrap();
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(
+            response.messages[0],
+            CosmosMsg::Staking(StakingMsg::Withdraw {
+                validator,
+                recipient: Some(admin)
+            })
+        );
     }
 }

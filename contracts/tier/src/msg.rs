@@ -36,6 +36,7 @@ pub enum HandleMsg {
     },
     Redelegate {
         validator_address: HumanAddr,
+        recipient: Option<HumanAddr>,
         padding: Option<String>,
     },
 }
