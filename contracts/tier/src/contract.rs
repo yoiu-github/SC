@@ -271,7 +271,10 @@ pub fn try_withdraw_rewards<S: Storage, A: Api, Q: Querier>(
     let validator = config_state.validator;
     let delegation = utils::query_delegation(&deps.querier, &env, &validator)?;
 
-    let can_withdraw = delegation.accumulated_rewards.amount.u128();
+    let can_withdraw = delegation
+        .map(|d| d.accumulated_rewards.amount.u128())
+        .unwrap_or(0);
+
     if can_withdraw == 0 {
         return Err(StdError::generic_err("There is nothing to withdraw"));
     }
@@ -311,6 +314,21 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Redelegation to the same validator"));
     }
 
+    if delegation.is_none() {
+        config_state.validator = validator_address;
+        config_state.save(&mut deps.storage)?;
+
+        let status = to_binary(&HandleAnswer::Redelegate {
+            status: ResponseStatus::Success,
+        })?;
+
+        return Ok(HandleResponse {
+            data: Some(status),
+            ..Default::default()
+        });
+    }
+
+    let delegation = delegation.unwrap();
     let can_withdraw = delegation.accumulated_rewards.amount.u128();
     let can_redelegate = delegation.can_redelegate.amount.u128();
     let delegated_amount = delegation.amount.amount.u128();
@@ -915,6 +933,12 @@ mod tests {
             padding: None,
         };
 
+        let redelegate_back_msg = HandleMsg::Redelegate {
+            validator_address: validator.clone(),
+            recipient: None,
+            padding: None,
+        };
+
         // Alice calls redelegate
         let response = handle(&mut deps, env.clone(), redelegate_msg.clone());
         let error = extract_error(response);
@@ -922,6 +946,23 @@ mod tests {
 
         let delegated_amount = 1000000;
         let accumulated_rewards = 10000;
+
+        // Redelegate without deposit
+        env.message.sender = admin.clone();
+        let response = handle(&mut deps, env.clone(), redelegate_msg.clone()).unwrap();
+        assert!(response.messages.is_empty());
+        let config = Config::load(&deps.storage).unwrap();
+        assert_eq!(config.validator, new_validator);
+
+        let response = handle(&mut deps, env.clone(), redelegate_back_msg.clone()).unwrap();
+        assert!(response.messages.is_empty());
+        let config = Config::load(&deps.storage).unwrap();
+        assert_eq!(config.validator, validator);
+
+        // Redelegate to itself
+        let response = handle(&mut deps, env.clone(), redelegate_back_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Redelegation to the same validator"));
 
         // Can redelegate = 0
         let mut delegation = FullDelegation {
@@ -935,7 +976,6 @@ mod tests {
         deps.querier
             .update_staking(USCRT, &[], &[delegation.clone()]);
 
-        env.message.sender = admin.clone();
         let response = handle(&mut deps, env.clone(), redelegate_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Cannot redelegate full delegation amount"));
@@ -979,8 +1019,18 @@ mod tests {
         let alice = HumanAddr::from("alice");
         let validator = HumanAddr::from("validator");
 
-        let mut env = mock_env(alice, &[]);
+        let mut env = mock_env(admin.clone(), &[]);
         env.block.time = current_time();
+
+        let withdraw_rewards_msg = HandleMsg::WithdrawRewards {
+            recipient: None,
+            padding: None,
+        };
+
+        // Nothing to withdraw
+        let response = handle(&mut deps, env.clone(), withdraw_rewards_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("There is nothing to withdraw"));
 
         let mut delegation = FullDelegation {
             delegator: env.contract.address.clone(),
@@ -993,12 +1043,8 @@ mod tests {
         deps.querier
             .update_staking(USCRT, &[], &[delegation.clone()]);
 
-        let withdraw_rewards_msg = HandleMsg::WithdrawRewards {
-            recipient: None,
-            padding: None,
-        };
-
         // Alice tries to withdraw
+        env.message.sender = alice;
         let response = handle(&mut deps, env.clone(), withdraw_rewards_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Unauthorized"));
@@ -1007,7 +1053,6 @@ mod tests {
         env.message.sender = admin.clone();
         let response = handle(&mut deps, env.clone(), withdraw_rewards_msg.clone());
         let error = extract_error(response);
-        println!("{}", error);
         assert!(error.contains("There is nothing to withdraw"));
 
         delegation.accumulated_rewards = Coin::new(1, USCRT);

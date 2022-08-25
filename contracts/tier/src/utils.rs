@@ -77,7 +77,7 @@ pub fn query_delegation<Q: Querier>(
     querier: &Q,
     env: &Env,
     validator: &HumanAddr,
-) -> StdResult<FullDelegation> {
+) -> StdResult<Option<FullDelegation>> {
     let delegation_request = StakingQuery::Delegation {
         delegator: env.contract.address.clone(),
         validator: validator.clone(),
@@ -91,8 +91,5 @@ pub fn query_delegation<Q: Querier>(
         _ => querier.query_delegation(&env.contract.address, validator)?,
     };
 
-    match delegation {
-        Some(delegation) => Ok(delegation),
-        None => Err(StdError::generic_err("Cannot query delegation")),
-    }
+    Ok(delegation)
 }
