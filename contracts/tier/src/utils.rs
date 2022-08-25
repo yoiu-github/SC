@@ -1,5 +1,9 @@
-use crate::state::Config;
-use cosmwasm_std::{Api, Env, FullDelegation, HumanAddr, Querier, StdError, StdResult};
+use crate::{contract::USCRT, state::Config};
+use cosmwasm_std::{
+    Api, Coin, Empty, Env, FullDelegation, HumanAddr, Querier, QueryRequest, StakingQuery,
+    StdError, StdResult,
+};
+use serde::Deserialize;
 
 pub fn assert_owner<A: Api>(api: &A, env: &Env, config: &Config) -> StdResult<()> {
     let owner = api.human_address(&config.owner)?;
@@ -36,12 +40,58 @@ pub fn get_deposit(env: &Env) -> StdResult<u128> {
     Ok(funds)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct FixedDelegationResponse {
+    pub delegation: Option<FixedFullDelegation>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FixedFullDelegation {
+    pub delegator: HumanAddr,
+    pub validator: HumanAddr,
+    pub amount: Coin,
+    pub can_redelegate: Coin,
+    pub accumulated_rewards: Vec<Coin>,
+}
+
+impl From<FixedFullDelegation> for FullDelegation {
+    fn from(val: FixedFullDelegation) -> Self {
+        let found_rewards = val
+            .accumulated_rewards
+            .into_iter()
+            .find(|r| r.denom == USCRT);
+
+        let accumulated_rewards = found_rewards.unwrap_or_else(|| Coin::new(0, USCRT));
+        FullDelegation {
+            delegator: val.delegator,
+            validator: val.validator,
+            amount: val.amount,
+            can_redelegate: val.can_redelegate,
+            accumulated_rewards,
+        }
+    }
+}
+
 pub fn query_delegation<Q: Querier>(
     querier: &Q,
     env: &Env,
     validator: &HumanAddr,
 ) -> StdResult<FullDelegation> {
-    match querier.query_delegation(&env.contract.address, validator)? {
+    let delegation_request = StakingQuery::Delegation {
+        delegator: env.contract.address.clone(),
+        validator: validator.clone(),
+    };
+
+    let request: QueryRequest<Empty> = QueryRequest::Staking(delegation_request);
+    let response: StdResult<FixedDelegationResponse> = querier.custom_query(&request);
+
+    let delegation = match response {
+        Ok(response) => response.delegation.map(Into::into),
+        _ => querier.query_delegation(&env.contract.address, validator)?,
+    };
+
+    match delegation {
         Some(delegation) => Ok(delegation),
         None => Err(StdError::generic_err("Cannot query delegation")),
     }
