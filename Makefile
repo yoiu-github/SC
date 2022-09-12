@@ -23,15 +23,16 @@ list-code:
 .PHONY: build _build
 build: _build compress schema
 _build:
-	cargo build --release --target wasm32-unknown-unknown --locked --package snip721-tier-token
-	cargo build --release --target wasm32-unknown-unknown --locked --package tier
+	cargo build --release --target wasm32-unknown-unknown
 	mkdir --parents ./build
 ifdef WASM_OPT
 	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm -o ./build/token.wasm
 	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/tier.wasm -o ./build/tier.wasm
+	wasm-opt -Oz ./target/wasm32-unknown-unknown/release/ido.wasm -o ./build/ido.wasm
 else
 	cp ./target/wasm32-unknown-unknown/release/snip721_tier_token.wasm ./build/token.wasm
 	cp ./target/wasm32-unknown-unknown/release/tier.wasm ./build/tier.wasm
+	cp ./target/wasm32-unknown-unknown/release/ido.wasm ./build/ido.wasm
 endif
 
 .PHONY: start-server
@@ -41,7 +42,7 @@ start-server: # CTRL+C to stop
 		--name localsecret ghcr.io/scrtlabs/localsecret:v1.4.0-cw-v1-beta.2
 
 .PHONY: compress
-compress: token.wasm.gz tier.wasm.gz
+compress: token.wasm.gz tier.wasm.gz ido.wasm.gz
 
 token.wasm.gz: build/token.wasm
 	cat ./build/token.wasm | gzip -9 > ./build/token.wasm.gz
@@ -49,10 +50,14 @@ token.wasm.gz: build/token.wasm
 tier.wasm.gz: build/tier.wasm
 	cat ./build/tier.wasm | gzip -9 > ./build/tier.wasm.gz
 
+ido.wasm.gz: build/ido.wasm
+	cat ./build/ido.wasm | gzip -9 > ./build/ido.wasm.gz
+
 .PHONY: schema
 schema:
 	cargo run --release --example schema-token
 	cargo run --release --example schema-tier
+	cargo run --release --example schema-ido
 
 .PHONY: clean
 clean:
