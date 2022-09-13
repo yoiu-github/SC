@@ -102,8 +102,7 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     Withdraw {
-        remaining_tokens: Uint128,
-        payments: Uint128,
+        amount: Uint128,
         status: ResponseStatus,
     },
 }

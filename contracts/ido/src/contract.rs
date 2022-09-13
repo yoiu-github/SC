@@ -143,6 +143,12 @@ fn get_max_payment<S: Storage, A: Api, Q: Querier>(
     token_id: Option<String>,
 ) -> StdResult<u128> {
     let config = Config::load(&deps.storage)?;
+    let canonical_address = deps.api.canonical_address(&address)?;
+
+    // If address not in whitelist, tier = 0
+    if !Whitelist::contains(&deps.storage, &canonical_address)? {
+        return Ok(config.max_payments[0].u128());
+    }
 
     let mut nft_tier = 0;
     if let Some(token_id) = token_id {
@@ -240,13 +246,21 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let canonical_investor = deps.api.canonical_address(&investor)?;
     let mut purchases = Purchases::load(&deps.storage, canonical_investor, ido_id)?;
 
+    if purchases.is_new_participant() {
+        ido.participants = ido.participants.checked_add(1).unwrap();
+    }
+
+    ido.save(&mut deps.storage)?;
+
     let purchase = Purchase::new(payment, amount, env.block.time);
     purchases.add(&purchase, &mut deps.storage)?;
 
     let token_address = deps.api.human_address(&ido.token_contract)?;
+    let ido_owner = deps.api.human_address(&ido.owner)?;
+
     let transfer_msg = transfer_from_msg(
         investor,
-        env.contract.address,
+        ido_owner,
         Uint128(payment),
         None,
         None,
@@ -342,13 +356,12 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     ido.withdrawn = true;
     ido.save(&mut deps.storage)?;
 
-    let recipient = env.message.sender;
     let remaining_tokens = Uint128(ido.remaining_amount());
-    let payments = ido.total_payment;
-
     let ido_token_contract = deps.api.human_address(&ido.token_contract)?;
+    let ido_owner = deps.api.human_address(&ido.owner)?;
+
     let transfer_tokens = transfer_msg(
-        recipient.clone(),
+        ido_owner,
         remaining_tokens,
         None,
         None,
@@ -357,26 +370,13 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
         ido_token_contract,
     )?;
 
-    let config = Config::load(&deps.storage)?;
-    let payment_token = deps.api.human_address(&config.token_contract)?;
-    let transfer_payment = transfer_msg(
-        recipient,
-        payments,
-        None,
-        None,
-        BLOCK_SIZE,
-        config.token_contract_hash,
-        payment_token,
-    )?;
-
     let answer = to_binary(&HandleAnswer::Withdraw {
-        remaining_tokens,
-        payments,
+        amount: remaining_tokens,
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
-        messages: vec![transfer_tokens, transfer_payment],
+        messages: vec![transfer_tokens],
         data: Some(answer),
         ..Default::default()
     })

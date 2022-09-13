@@ -62,18 +62,6 @@ impl Whitelist {
     }
 }
 
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Purchases {
-    #[serde(skip)]
-    ido_id: u64,
-    #[serde(skip)]
-    investor: CanonicalAddr,
-
-    total_payment: Uint128,
-    index_from: u64,
-    index_to: u64,
-}
-
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Purchase {
     #[serde(skip)]
@@ -90,6 +78,18 @@ impl Purchase {
             payment_time,
         }
     }
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Purchases {
+    #[serde(skip)]
+    ido_id: u64,
+    #[serde(skip)]
+    investor: CanonicalAddr,
+
+    total_payment: Uint128,
+    index_from: u64,
+    index_to: u64,
 }
 
 impl Purchases {
@@ -127,6 +127,10 @@ impl Purchases {
 
     pub fn len(&self) -> u64 {
         self.index_to.checked_sub(self.index_from).unwrap()
+    }
+
+    pub fn is_new_participant(&self) -> bool {
+        self.index_to == 0
     }
 
     pub fn is_empty(&self) -> bool {
