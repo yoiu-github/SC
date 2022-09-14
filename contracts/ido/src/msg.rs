@@ -1,4 +1,4 @@
-use cosmwasm_std::{HumanAddr, Uint128};
+use cosmwasm_std::{HumanAddr, StdError, StdResult, Uint128};
 use schemars::JsonSchema;
 use secret_toolkit_utils::Query;
 use serde::{Deserialize, Serialize};
@@ -40,14 +40,35 @@ pub enum TierReponse {
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     pub max_payments: Vec<Uint128>,
+    pub lock_periods: Vec<u64>,
     pub tier_contract: HumanAddr,
     pub tier_contract_hash: String,
     pub nft_contract: HumanAddr,
     pub nft_contract_hash: String,
     pub token_contract: HumanAddr,
     pub token_contract_hash: String,
-    pub lock_period: u64,
     pub whitelist: Option<Vec<HumanAddr>>,
+}
+
+impl InitMsg {
+    pub fn check(&self) -> StdResult<()> {
+        if self.max_payments.is_empty() {
+            return Err(StdError::generic_err("Specify max payments array"));
+        }
+
+        let is_sorted = self.max_payments.as_slice().windows(2).all(|v| v[0] < v[1]);
+        if !is_sorted {
+            return Err(StdError::generic_err(
+                "Specify max payments in increasing order",
+            ));
+        }
+
+        if self.max_payments.len() != self.lock_periods.len() {
+            return Err(StdError::generic_err("Arrays have different size"));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

@@ -21,26 +21,18 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: InitMsg,
 ) -> InitResult {
+    msg.check()?;
+
     let canonical_owner = deps.api.canonical_address(&env.message.sender)?;
     let tier_contract = deps.api.canonical_address(&msg.tier_contract)?;
     let nft_contract = deps.api.canonical_address(&msg.nft_contract)?;
     let token_contract = deps.api.canonical_address(&msg.token_contract)?;
 
-    if msg.max_payments.is_empty() {
-        return Err(StdError::generic_err("Specify max payments array"));
-    }
-
-    let is_sorted = msg.max_payments.as_slice().windows(2).all(|v| v[0] < v[1]);
-    if !is_sorted {
-        return Err(StdError::generic_err(
-            "Specify max payments in increasing order",
-        ));
-    }
-
-    if let Some(whitelist) = msg.whitelist {
-        for address in whitelist {
+    if let Some(addresses) = msg.whitelist {
+        let mut whitelist = Whitelist::load(&deps.storage, None)?;
+        for address in addresses {
             let canonical_address = deps.api.canonical_address(&address)?;
-            Whitelist::add(&mut deps.storage, &canonical_address)?;
+            whitelist.add(&mut deps.storage, &canonical_address)?;
         }
     }
 
@@ -52,7 +44,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         tier_contract_hash: msg.tier_contract_hash,
         nft_contract_hash: msg.nft_contract_hash,
         token_contract_hash: msg.token_contract_hash,
-        lock_period: msg.lock_period,
+        lock_periods: msg.lock_periods,
         max_payments: msg.max_payments,
     };
 
@@ -137,17 +129,19 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn get_max_payment<S: Storage, A: Api, Q: Querier>(
+fn get_tier<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
     token_id: Option<String>,
-) -> StdResult<u128> {
+) -> StdResult<u8> {
     let config = Config::load(&deps.storage)?;
     let canonical_address = deps.api.canonical_address(&address)?;
 
     // If address not in whitelist, tier = 0
-    if !Whitelist::contains(&deps.storage, &canonical_address)? {
-        return Ok(config.max_payments[0].u128());
+
+    let whitelist = Whitelist::load(&deps.storage, None)?;
+    if !whitelist.contains(&deps.storage, &canonical_address)? {
+        return Ok(0);
     }
 
     let mut nft_tier = 0;
@@ -165,17 +159,15 @@ fn get_max_payment<S: Storage, A: Api, Q: Querier>(
     let TierReponse::TierOf { tier } =
         tier_of.query(&deps.querier, config.tier_contract_hash, tier_contract)?;
 
-    let max_tier = max(tier, nft_tier);
-    let max_amount = config.max_payments[max_tier as usize];
-
-    Ok(max_amount.u128())
+    Ok(max(tier, nft_tier))
 }
 
 fn investor_can_buy<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    investor: HumanAddr,
+    config: &Config,
+    investor: &HumanAddr,
     ido_id: u64,
-    token_id: Option<String>,
+    tier: u8,
 ) -> StdResult<u128> {
     let ido = Ido::load(&deps.storage, ido_id)?;
     let remaning_amount = ido.remaining_amount();
@@ -184,11 +176,11 @@ fn investor_can_buy<S: Storage, A: Api, Q: Querier>(
         return Ok(0);
     }
 
-    let canonical_investor = deps.api.canonical_address(&investor)?;
+    let canonical_investor = deps.api.canonical_address(investor)?;
     let purchases = Purchases::load(&deps.storage, canonical_investor, ido_id)?;
     let investor_payment = purchases.total_payment();
 
-    let max_payment = get_max_payment(deps, investor, token_id)?;
+    let max_payment = config.max_payments[tier as usize].u128();
     let available_payment = max_payment.checked_sub(investor_payment).unwrap();
     let max_tokens_allowed = available_payment.checked_div(ido.price.u128()).unwrap();
 
@@ -210,7 +202,9 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     }
 
     let investor = env.message.sender;
-    let can_buy = investor_can_buy(deps, investor.clone(), ido_id, token_id)?;
+    let config = Config::load(&deps.storage)?;
+    let tier = get_tier(deps, investor.clone(), token_id)?;
+    let can_buy = investor_can_buy(deps, &config, &investor, ido_id, tier)?;
 
     if can_buy == 0 {
         let msg = if ido.remaining_amount() == 0 {
@@ -246,13 +240,14 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let canonical_investor = deps.api.canonical_address(&investor)?;
     let mut purchases = Purchases::load(&deps.storage, canonical_investor, ido_id)?;
 
-    if purchases.is_new_participant() {
+    if purchases.total_payment() == 0 {
         ido.participants = ido.participants.checked_add(1).unwrap();
     }
 
     ido.save(&mut deps.storage)?;
 
-    let purchase = Purchase::new(payment, amount, env.block.time);
+    let lock_period = config.lock_periods[tier as usize];
+    let purchase = Purchase::new(payment, amount, env.block.time, lock_period);
     purchases.add(&purchase, &mut deps.storage)?;
 
     let token_address = deps.api.human_address(&ido.token_contract)?;
@@ -289,10 +284,6 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     let investor = deps.api.canonical_address(&env.message.sender)?;
     let current_time = env.block.time;
 
-    let ido = Ido::load(&deps.storage, ido_id)?;
-    let config = Config::load(&deps.storage)?;
-    let lock_period = config.lock_period;
-
     let mut purchases = Purchases::load(&deps.storage, investor, ido_id)?;
     let mut recv_amount: u128 = 0;
     let mut index = 0;
@@ -300,10 +291,9 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     let len = purchases.len();
     while index < len {
         let purchase = purchases.get(index, &deps.storage)?;
-        let recv_time = purchase.payment_time.checked_add(lock_period).unwrap();
         index = index.checked_add(1).unwrap();
 
-        if recv_time >= current_time {
+        if purchase.unlock_time >= current_time {
             break;
         }
 
@@ -314,6 +304,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
 
     purchases.remove(&mut deps.storage, index)?;
 
+    let ido = Ido::load(&deps.storage, ido_id)?;
     let token_contract = deps.api.human_address(&ido.token_contract)?;
     let transfer_msg = transfer_msg(
         env.message.sender,
@@ -386,9 +377,10 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     addresses: Vec<HumanAddr>,
 ) -> HandleResult {
+    let mut whitelist = Whitelist::load(&deps.storage, None)?;
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
-        Whitelist::add(&mut deps.storage, &canonical_address)?;
+        whitelist.add(&mut deps.storage, &canonical_address)?;
     }
 
     let answer = to_binary(&HandleAnswer::WhitelistAdd {
@@ -405,9 +397,10 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     addresses: Vec<HumanAddr>,
 ) -> HandleResult {
+    let mut whitelist = Whitelist::load(&deps.storage, None)?;
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
-        Whitelist::remove(&mut deps.storage, &canonical_address)?;
+        whitelist.remove(&mut deps.storage, &canonical_address)?;
     }
 
     let answer = to_binary(&HandleAnswer::WhitelistRemove {
@@ -445,7 +438,7 @@ mod test {
             nft_contract_hash: String::from("nft_hash"),
             token_contract: HumanAddr::from("token"),
             token_contract_hash: String::from("token_hash"),
-            lock_period: 100,
+            lock_periods: vec![100, 150, 200, 250],
             whitelist: None,
         }
     }
@@ -526,7 +519,7 @@ mod test {
 
         assert_eq!(config.owner, owner);
         assert_eq!(config.max_payments, msg.max_payments);
-        assert_eq!(config.lock_period, msg.lock_period);
+        assert_eq!(config.lock_periods, msg.lock_periods);
         assert_eq!(config.tier_contract, tier_contract);
         assert_eq!(config.tier_contract_hash, msg.tier_contract_hash);
         assert_eq!(config.nft_contract, nft_contract);
@@ -551,9 +544,12 @@ mod test {
         msg.whitelist = Some(whitelist_addresses.clone());
         let deps = initialize_with(msg).unwrap();
 
+        let whitelist = Whitelist::load(&deps.storage, None).unwrap();
         for address in whitelist_addresses {
             let canonical_address = deps.api.canonical_address(&address).unwrap();
-            assert!(Whitelist::contains(&deps.storage, &canonical_address).unwrap());
+            assert!(whitelist
+                .contains(&deps.storage, &canonical_address)
+                .unwrap());
         }
     }
 
