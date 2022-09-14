@@ -66,11 +66,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             token_contract_hash: token_hash,
             price,
             total_amount,
+            whitelist,
         } => {
             let mut ido = Ido::default();
+            let owner = deps.api.canonical_address(&env.message.sender)?;
             let token_contract = deps.api.canonical_address(&token_contract)?;
 
-            ido.owner = deps.api.canonical_address(&env.message.sender)?;
+            ido.owner = owner;
             ido.start_time = start_time;
             ido.end_time = end_time;
             ido.token_contract = token_contract;
@@ -78,15 +80,20 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ido.price = price;
             ido.total_tokens_amount = total_amount;
 
-            start_ido(deps, env, ido)
+            start_ido(deps, env, ido, whitelist)
         }
         HandleMsg::BuyTokens {
             amount,
             ido_id,
             token_id,
         } => buy_tokens(deps, env, ido_id, amount.u128(), token_id),
-        HandleMsg::WhitelistAdd { addresses } => whitelist_add(deps, addresses),
-        HandleMsg::WhitelistRemove { addresses } => whitelist_remove(deps, addresses),
+        HandleMsg::WhitelistAdd { addresses, ido_id } => {
+            whitelist_add(deps, env, addresses, ido_id)
+        }
+        HandleMsg::WhitelistRemove { addresses, ido_id } => {
+            whitelist_remove(deps, env, addresses, ido_id)
+        }
+
         HandleMsg::RecvTokens { ido_id } => recv_tokens(deps, env, ido_id),
         HandleMsg::Withdraw { ido_id } => withdraw(deps, env, ido_id),
     }
@@ -96,6 +103,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     mut ido: Ido,
+    whitelist_addresses: Option<Vec<HumanAddr>>,
 ) -> HandleResult {
     if ido.start_time >= ido.end_time {
         return Err(StdError::generic_err(
@@ -104,8 +112,12 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     }
 
     let ido_id = ido.save(&mut deps.storage)?;
-    let token_address = deps.api.human_address(&ido.token_contract)?;
+    let mut whitelist = Whitelist::load(&deps.storage, Some(ido_id))?;
+    if let Some(whitelist_addresses) = whitelist_addresses {
+        whitelist.add_human_addresses(deps, &whitelist_addresses)?;
+    }
 
+    let token_address = deps.api.human_address(&ido.token_contract)?;
     let transfer_msg = transfer_from_msg(
         env.message.sender,
         env.contract.address,
@@ -120,6 +132,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     let answer = to_binary(&HandleAnswer::StartIdo {
         ido_id,
         status: ResponseStatus::Success,
+        whitelist_size: whitelist.len(),
     })?;
 
     Ok(HandleResponse {
@@ -132,14 +145,14 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
 fn get_tier<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
+    ido_id: u64,
     token_id: Option<String>,
 ) -> StdResult<u8> {
     let config = Config::load(&deps.storage)?;
     let canonical_address = deps.api.canonical_address(&address)?;
 
     // If address not in whitelist, tier = 0
-
-    let whitelist = Whitelist::load(&deps.storage, None)?;
+    let whitelist = Whitelist::load(&deps.storage, Some(ido_id))?;
     if !whitelist.contains(&deps.storage, &canonical_address)? {
         return Ok(0);
     }
@@ -203,7 +216,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     let investor = env.message.sender;
     let config = Config::load(&deps.storage)?;
-    let tier = get_tier(deps, investor.clone(), token_id)?;
+    let tier = get_tier(deps, investor.clone(), ido_id, token_id)?;
     let can_buy = investor_can_buy(deps, &config, &investor, ido_id, tier)?;
 
     if can_buy == 0 {
@@ -373,18 +386,42 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+fn check_whitelist_authority<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    sender: &HumanAddr,
+    ido_id: Option<u64>,
+) -> StdResult<()> {
+    let sender = deps.api.canonical_address(sender)?;
+
+    if let Some(ido_id) = ido_id {
+        let ido = Ido::load(&deps.storage, ido_id)?;
+        if sender != ido.owner {
+            return Err(StdError::unauthorized());
+        }
+    } else {
+        let config = Config::load(&deps.storage)?;
+        if sender != config.owner {
+            return Err(StdError::unauthorized());
+        }
+    }
+
+    Ok(())
+}
+
 fn whitelist_add<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
+    env: Env,
     addresses: Vec<HumanAddr>,
+    ido_id: Option<u64>,
 ) -> HandleResult {
-    let mut whitelist = Whitelist::load(&deps.storage, None)?;
-    for address in addresses {
-        let canonical_address = deps.api.canonical_address(&address)?;
-        whitelist.add(&mut deps.storage, &canonical_address)?;
-    }
+    check_whitelist_authority(deps, &env.message.sender, ido_id)?;
+
+    let mut whitelist = Whitelist::load(&deps.storage, ido_id)?;
+    whitelist.add_human_addresses(deps, &addresses)?;
 
     let answer = to_binary(&HandleAnswer::WhitelistAdd {
         status: ResponseStatus::Success,
+        whitelist_size: whitelist.len(),
     })?;
 
     Ok(HandleResponse {
@@ -395,8 +432,12 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
 
 fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
+    env: Env,
     addresses: Vec<HumanAddr>,
+    ido_id: Option<u64>,
 ) -> HandleResult {
+    check_whitelist_authority(deps, &env.message.sender, ido_id)?;
+
     let mut whitelist = Whitelist::load(&deps.storage, None)?;
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
@@ -405,6 +446,7 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
 
     let answer = to_binary(&HandleAnswer::WhitelistRemove {
         status: ResponseStatus::Success,
+        whitelist_size: whitelist.len(),
     })?;
 
     Ok(HandleResponse {
@@ -472,6 +514,12 @@ mod test {
         let price = rng.gen();
         let total_amount = rng.gen();
 
+        let mut whitelist = Vec::new();
+        for i in 0..rng.gen_range(0..100) {
+            let address = format!("address_{}", i);
+            whitelist.push(HumanAddr(address));
+        }
+
         HandleMsg::StartIdo {
             start_time,
             end_time,
@@ -479,6 +527,7 @@ mod test {
             token_contract_hash,
             price: Uint128(price),
             total_amount: Uint128(total_amount),
+            whitelist: Some(whitelist),
         }
     }
 
@@ -567,7 +616,7 @@ mod test {
             handle(&mut deps, env.clone(), msg.clone()).unwrap();
 
         match from_binary(&data.unwrap()).unwrap() {
-            HandleAnswer::StartIdo { ido_id, status } => {
+            HandleAnswer::StartIdo { ido_id, status, .. } => {
                 assert_eq!(ido_id, 0);
                 assert_eq!(status, ResponseStatus::Success);
             }
@@ -584,6 +633,7 @@ mod test {
             token_contract_hash,
             price,
             total_amount,
+            whitelist,
         } = msg
         {
             let sender = deps.api.canonical_address(&env.message.sender).unwrap();
@@ -598,6 +648,10 @@ mod test {
             assert_eq!(ido.participants, 0);
             assert_eq!(ido.sold_amount, Uint128(0));
             assert_eq!(ido.total_tokens_amount, total_amount);
+
+            let whitelist_len = whitelist.unwrap().len() as u32;
+            let whitelist = Whitelist::load(&deps.storage, Some(0)).unwrap();
+            assert_eq!(whitelist_len, whitelist.len());
 
             let expected_message = transfer_from_msg(
                 env.message.sender,

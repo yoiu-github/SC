@@ -1,4 +1,6 @@
-use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128};
+use cosmwasm_std::{
+    Api, CanonicalAddr, Extern, HumanAddr, Querier, ReadonlyStorage, StdResult, Storage, Uint128,
+};
 use cosmwasm_storage::{bucket, bucket_read, singleton, singleton_read, Bucket, ReadonlyBucket};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -10,7 +12,9 @@ pub const PREFIX_WHITELIST_APPEND_STORE: &[u8] = b"app2wh";
 pub const PREFIX_INVESTOR_TO_WHITELIST_INDEX: &[u8] = b"in2idx";
 pub const PREFIX_ID_TO_IDO: &[u8] = b"id2ido";
 pub const PREFIX_ID_TO_INVESTOR_PURCHASES: &[u8] = b"id2ps";
-pub const PREFIX_INVESTOR_MAP: &[u8] = b"inv2ids";
+pub const PREFIX_INVESTOR_TO_IDO_INDEXES: &[u8] = b"inv2ids";
+pub const PREFIX_OWNER_TO_IDO_INDEXES: &[u8] = b"own2ids";
+pub const PREFIX_STARTUP_MAP: &[u8] = b"stp2ids";
 
 pub type IdoSize = u64;
 pub type WhitelistSize = u32;
@@ -117,11 +121,29 @@ impl Whitelist {
         bucket.load(&index.to_le_bytes())
     }
 
-    pub fn add_unchecked<S: Storage>(
+    pub fn add_human_addresses<S: Storage, A: Api, Q: Querier>(
         &mut self,
-        storage: &mut S,
-        address: &CanonicalAddr,
-    ) -> StdResult<()> {
+        deps: &mut Extern<S, A, Q>,
+        addresses: &[HumanAddr],
+    ) -> StdResult<WhitelistSize> {
+        let mut counter: WhitelistSize = 0;
+        for address in addresses {
+            let canonical_address = deps.api.canonical_address(address)?;
+            let is_added = self.add(&mut deps.storage, &canonical_address)?;
+
+            if is_added {
+                counter = counter.checked_add(1).unwrap();
+            }
+        }
+
+        Ok(counter)
+    }
+
+    pub fn add<S: Storage>(&mut self, storage: &mut S, address: &CanonicalAddr) -> StdResult<bool> {
+        if self.contains(storage, address)? {
+            return Ok(false);
+        };
+
         let index = self.len;
 
         let mut bucket = self.bucket(storage, PREFIX_WHITELIST_APPEND_STORE);
@@ -131,15 +153,9 @@ impl Whitelist {
         bucket.save(address.as_slice(), &index)?;
 
         self.len = self.len.checked_add(1).unwrap();
-        self.save(storage)
-    }
+        self.save(storage)?;
 
-    pub fn add<S: Storage>(&mut self, storage: &mut S, address: &CanonicalAddr) -> StdResult<()> {
-        if self.contains(storage, address)? {
-            Err(StdError::generic_err("Address already in whitelist"))
-        } else {
-            self.add_unchecked(storage, address)
-        }
+        Ok(true)
     }
 
     pub fn remove_by_index<S: Storage>(
@@ -160,7 +176,11 @@ impl Whitelist {
         &mut self,
         storage: &mut S,
         address: &CanonicalAddr,
-    ) -> StdResult<()> {
+    ) -> StdResult<bool> {
+        if !self.contains(storage, address)? {
+            return Ok(false);
+        }
+
         let mut bucket: Bucket<S, WhitelistSize> =
             self.bucket(storage, PREFIX_INVESTOR_TO_WHITELIST_INDEX);
 
@@ -180,7 +200,9 @@ impl Whitelist {
         }
 
         self.len = last_index;
-        self.save(storage)
+        self.save(storage)?;
+
+        Ok(true)
     }
 
     pub fn contains<S: ReadonlyStorage>(
@@ -359,22 +381,29 @@ impl Purchases {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub struct InvestorInfo {
+pub struct IdoAppendStorage {
+    #[serde(skip)]
+    prefix: &'static [u8],
+
     #[serde(skip)]
     address: CanonicalAddr,
 
     ido_amount: IdoSize,
 }
 
-impl InvestorInfo {
-    pub fn load<S: ReadonlyStorage>(storage: &S, address: CanonicalAddr) -> StdResult<Self> {
-        let investor_info: Option<Self> =
-            bucket_read(PREFIX_INVESTOR_MAP, storage).may_load(address.as_slice())?;
+impl IdoAppendStorage {
+    fn load<S: ReadonlyStorage>(
+        storage: &S,
+        address: CanonicalAddr,
+        prefix: &'static [u8],
+    ) -> StdResult<Self> {
+        let info: Option<Self> = bucket_read(prefix, storage).may_load(address.as_slice())?;
 
-        let mut investor_info = investor_info.unwrap_or_default();
-        investor_info.address = address;
+        let mut info = info.unwrap_or_default();
+        info.address = address;
+        info.prefix = prefix;
 
-        Ok(investor_info)
+        Ok(info)
     }
 
     pub fn ido_amount(&self) -> IdoSize {
@@ -382,13 +411,12 @@ impl InvestorInfo {
     }
 
     fn save<S: Storage>(&mut self, storage: &mut S) -> StdResult<()> {
-        bucket(PREFIX_INVESTOR_MAP, storage).save(self.address.as_slice(), self)
+        bucket(self.prefix, storage).save(self.address.as_slice(), self)
     }
 
     pub fn add_ido_id<S: Storage>(&mut self, storage: &mut S, ido_id: IdoSize) -> StdResult<()> {
         let next_index = self.ido_amount;
-        let mut bucket =
-            Bucket::multilevel(&[PREFIX_INVESTOR_MAP, self.address.as_slice()], storage);
+        let mut bucket = Bucket::multilevel(&[self.prefix, self.address.as_slice()], storage);
         bucket.save(&next_index.to_le_bytes(), &ido_id)?;
 
         self.ido_amount = self.ido_amount.checked_add(1).unwrap();
@@ -396,9 +424,30 @@ impl InvestorInfo {
     }
 
     pub fn get_ido_id<S: ReadonlyStorage>(&self, storage: &S, index: u64) -> StdResult<u64> {
-        let bucket =
-            ReadonlyBucket::multilevel(&[PREFIX_INVESTOR_MAP, self.address.as_slice()], storage);
+        let bucket = ReadonlyBucket::multilevel(&[self.prefix, self.address.as_slice()], storage);
         bucket.load(&index.to_le_bytes())
+    }
+}
+
+pub struct InvestorIdoList {}
+
+impl InvestorIdoList {
+    pub fn load<S: ReadonlyStorage>(
+        storage: &S,
+        address: CanonicalAddr,
+    ) -> StdResult<IdoAppendStorage> {
+        IdoAppendStorage::load(storage, address, PREFIX_INVESTOR_TO_IDO_INDEXES)
+    }
+}
+
+pub struct OwnerIdoList {}
+
+impl OwnerIdoList {
+    pub fn load<S: ReadonlyStorage>(
+        storage: &S,
+        address: CanonicalAddr,
+    ) -> StdResult<IdoAppendStorage> {
+        IdoAppendStorage::load(storage, address, PREFIX_OWNER_TO_IDO_INDEXES)
     }
 }
 
@@ -485,18 +534,20 @@ mod test {
         assert_eq!(whitelist.len(), 0);
         assert_eq!(whitelist.contains(storage, &address), Ok(false));
 
-        whitelist.add(storage, &address).unwrap();
+        assert_eq!(whitelist.add(storage, &address), Ok(true));
         assert_eq!(whitelist.len(), 1);
         assert!(!whitelist.is_empty());
-        assert_eq!(whitelist.contains(storage, &address), Ok(true));
-        assert!(whitelist.add(storage, &address).is_err());
 
-        whitelist.remove(storage, &address).unwrap();
+        assert_eq!(whitelist.contains(storage, &address), Ok(true));
+        assert_eq!(whitelist.add(storage, &address), Ok(false));
+
+        assert_eq!(whitelist.remove(storage, &address), Ok(true));
         assert_eq!(whitelist.contains(storage, &address), Ok(false));
+
         assert!(whitelist.is_empty());
         assert_eq!(whitelist.len(), 0);
 
-        assert!(whitelist.remove(storage, &address).is_err());
+        assert_eq!(whitelist.remove(storage, &address), Ok(false));
     }
 
     #[test]
@@ -626,33 +677,33 @@ mod test {
     }
 
     #[test]
-    fn investor_info() {
+    fn ido_list() {
         let deps = mock_dependencies(20, &[]);
         let mut storage = deps.storage;
 
         let address = HumanAddr::from("investor");
         let canonical_address = deps.api.canonical_address(&address).unwrap();
-        let mut investor_info = InvestorInfo::load(&storage, canonical_address.clone()).unwrap();
+        let mut ido_list = InvestorIdoList::load(&storage, canonical_address.clone()).unwrap();
 
-        assert_eq!(investor_info.ido_amount(), 0);
-        assert!(investor_info.get_ido_id(&storage, 0).is_err());
+        assert_eq!(ido_list.ido_amount(), 0);
+        assert!(ido_list.get_ido_id(&storage, 0).is_err());
 
         let mut rng = thread_rng();
         let ido_id = rng.gen();
-        investor_info.add_ido_id(&mut storage, ido_id).unwrap();
+        ido_list.add_ido_id(&mut storage, ido_id).unwrap();
 
-        assert_eq!(investor_info.ido_amount(), 1);
-        assert_eq!(investor_info.get_ido_id(&storage, 0), Ok(ido_id));
+        assert_eq!(ido_list.ido_amount(), 1);
+        assert_eq!(ido_list.get_ido_id(&storage, 0), Ok(ido_id));
 
         let new_ido_id = rng.gen();
-        investor_info.add_ido_id(&mut storage, new_ido_id).unwrap();
+        ido_list.add_ido_id(&mut storage, new_ido_id).unwrap();
 
-        assert_eq!(investor_info.ido_amount(), 2);
-        assert_eq!(investor_info.get_ido_id(&storage, 0), Ok(ido_id));
-        assert_eq!(investor_info.get_ido_id(&storage, 1), Ok(new_ido_id));
+        assert_eq!(ido_list.ido_amount(), 2);
+        assert_eq!(ido_list.get_ido_id(&storage, 0), Ok(ido_id));
+        assert_eq!(ido_list.get_ido_id(&storage, 1), Ok(new_ido_id));
 
-        let loaded_investor_info = InvestorInfo::load(&storage, canonical_address).unwrap();
-        assert_eq!(investor_info, loaded_investor_info);
+        let loaded_ido_list = InvestorIdoList::load(&storage, canonical_address).unwrap();
+        assert_eq!(ido_list, loaded_ido_list);
     }
 
     #[test]

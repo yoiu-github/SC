@@ -81,12 +81,15 @@ pub enum HandleMsg {
         token_contract_hash: String,
         price: Uint128,
         total_amount: Uint128,
+        whitelist: Option<Vec<HumanAddr>>,
     },
     WhitelistAdd {
         addresses: Vec<HumanAddr>,
+        ido_id: Option<u64>,
     },
     WhitelistRemove {
         addresses: Vec<HumanAddr>,
+        ido_id: Option<u64>,
     },
     BuyTokens {
         ido_id: u64,
@@ -106,12 +109,15 @@ pub enum HandleMsg {
 pub enum HandleAnswer {
     StartIdo {
         ido_id: u64,
+        whitelist_size: u32,
         status: ResponseStatus,
     },
     WhitelistAdd {
+        whitelist_size: u32,
         status: ResponseStatus,
     },
     WhitelistRemove {
+        whitelist_size: u32,
         status: ResponseStatus,
     },
     BuyTokens {
