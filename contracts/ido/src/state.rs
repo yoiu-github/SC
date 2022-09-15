@@ -1,4 +1,4 @@
-use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
+use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage};
 use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +39,7 @@ pub struct Config {
     pub nft_contract_hash: String,
     pub token_contract: CanonicalAddr,
     pub token_contract_hash: String,
-    pub max_payments: Vec<Uint128>,
+    pub max_payments: Vec<u128>,
     pub lock_periods: Vec<u64>,
 }
 
@@ -55,15 +55,15 @@ impl Config {
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Purchase {
-    pub tokens_amount: Uint128,
+    pub tokens_amount: u128,
     pub unlock_time: u64,
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InvestorIdoInfo {
-    pub total_payment: Uint128,
-    pub total_tokens_bought: Uint128,
-    pub total_tokens_received: Uint128,
+    pub total_payment: u128,
+    pub total_tokens_bought: u128,
+    pub total_tokens_received: u128,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -75,11 +75,11 @@ pub struct Ido {
     pub end_time: u64,
     pub token_contract: CanonicalAddr,
     pub token_contract_hash: String,
-    pub price: Uint128,
+    pub price: u128,
     pub participants: u64,
-    pub sold_amount: Uint128,
-    pub total_tokens_amount: Uint128,
-    pub total_payment: Uint128,
+    pub sold_amount: u128,
+    pub total_tokens_amount: u128,
+    pub total_payment: u128,
     pub withdrawn: bool,
 }
 
@@ -125,9 +125,9 @@ impl Ido {
     }
 
     pub fn remaining_amount(&self) -> u128 {
-        let total_amount = self.total_tokens_amount.u128();
-        let sold_amount = self.sold_amount.u128();
-        total_amount.checked_sub(sold_amount).unwrap()
+        self.total_tokens_amount
+            .checked_sub(self.sold_amount)
+            .unwrap()
     }
 }
 
@@ -153,8 +153,8 @@ mod test {
             start_time: 100,
             end_time: 150,
             token_contract: canonical_token_address,
-            price: Uint128(100),
-            total_tokens_amount: Uint128(1000),
+            price: 100,
+            total_tokens_amount: 1000,
             ..Ido::default()
         };
 

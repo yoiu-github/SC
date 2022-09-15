@@ -36,6 +36,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         }
     }
 
+    let max_payments = msg.max_payments.into_iter().map(|p| p.u128()).collect();
     let config = Config {
         owner: canonical_owner,
         tier_contract,
@@ -45,7 +46,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         nft_contract_hash: msg.nft_contract_hash,
         token_contract_hash: msg.token_contract_hash,
         lock_periods: msg.lock_periods,
-        max_payments: msg.max_payments,
+        max_payments,
     };
 
     config.save(&mut deps.storage)?;
@@ -77,8 +78,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ido.end_time = end_time;
             ido.token_contract = token_contract;
             ido.token_contract_hash = token_hash;
-            ido.price = price;
-            ido.total_tokens_amount = total_amount;
+            ido.price = price.u128();
+            ido.total_tokens_amount = total_amount.u128();
 
             start_ido(deps, env, ido, whitelist)
         }
@@ -129,7 +130,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     let transfer_msg = transfer_from_msg(
         env.message.sender,
         env.contract.address,
-        ido.total_tokens_amount,
+        Uint128(ido.total_tokens_amount),
         None,
         None,
         BLOCK_SIZE,
@@ -214,11 +215,11 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     let config = Config::load(&deps.storage)?;
     let tier = get_tier(deps, sender.clone(), ido_id, token_id)?;
-    let max_tier_payment = config.max_payments[tier as usize].u128();
+    let max_tier_payment = config.max_payments[tier as usize];
 
-    let current_payment = investor_ido_info.total_payment.u128();
+    let current_payment = investor_ido_info.total_payment;
     let available_payment = max_tier_payment.checked_sub(current_payment).unwrap();
-    let max_tokens_amount = available_payment.checked_div(ido.price.u128()).unwrap();
+    let max_tokens_amount = available_payment.checked_div(ido.price).unwrap();
     let can_buy_tokens = min(max_tokens_amount, remaining_amount);
 
     if can_buy_tokens == 0 {
@@ -232,50 +233,33 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err(&msg));
     }
 
-    let payment = amount.checked_mul(ido.price.u128()).unwrap();
+    let payment = amount.checked_mul(ido.price).unwrap();
     let lock_period = config.lock_periods[tier as usize];
 
     let unlock_time = env.block.time.checked_add(lock_period).unwrap();
     let tokens_amount = Uint128(amount);
     let purchase = Purchase {
-        tokens_amount,
+        tokens_amount: tokens_amount.u128(),
         unlock_time,
     };
 
     let investor_purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
     investor_purchases.push_back(&mut deps.storage, &purchase)?;
 
-    investor_ido_info.total_payment = Uint128(
-        investor_ido_info
-            .total_payment
-            .u128()
-            .checked_add(payment)
-            .unwrap(),
-    );
+    investor_ido_info.total_payment = investor_ido_info
+        .total_payment
+        .checked_add(payment)
+        .unwrap();
 
-    investor_ido_info.total_tokens_bought = Uint128(
-        investor_ido_info
-            .total_tokens_bought
-            .u128()
-            .checked_add(amount)
-            .unwrap(),
-    );
+    investor_ido_info.total_tokens_bought = investor_ido_info
+        .total_tokens_bought
+        .checked_add(amount)
+        .unwrap();
 
     investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
 
-    ido.sold_amount = ido
-        .sold_amount
-        .u128()
-        .checked_add(amount)
-        .map(Uint128)
-        .unwrap();
-
-    ido.total_payment = ido
-        .total_payment
-        .u128()
-        .checked_add(payment)
-        .map(Uint128)
-        .unwrap();
+    ido.sold_amount = ido.sold_amount.checked_add(amount).unwrap();
+    ido.total_payment = ido.total_payment.checked_add(payment).unwrap();
 
     if current_payment == 0 {
         ido.participants = ido.participants.checked_add(1).unwrap();
@@ -332,10 +316,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         let purchase = purchase?;
 
         if purchase.unlock_time >= current_time {
-            recv_amount = recv_amount
-                .checked_add(purchase.tokens_amount.u128())
-                .unwrap();
-
+            recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
             indices.push(i);
         }
     }
@@ -352,13 +333,10 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         });
     }
 
-    investor_ido_info.total_tokens_received = Uint128(
-        investor_ido_info
-            .total_tokens_received
-            .u128()
-            .checked_add(recv_amount)
-            .unwrap(),
-    );
+    investor_ido_info.total_tokens_received = investor_ido_info
+        .total_tokens_received
+        .checked_add(recv_amount)
+        .unwrap();
 
     for (shift, index) in indices.into_iter().enumerate() {
         let position = index.checked_sub(shift).unwrap();
@@ -620,7 +598,6 @@ mod test {
         let token_contract = deps.api.canonical_address(&msg.token_contract).unwrap();
 
         assert_eq!(config.owner, owner);
-        assert_eq!(config.max_payments, msg.max_payments);
         assert_eq!(config.lock_periods, msg.lock_periods);
         assert_eq!(config.tier_contract, tier_contract);
         assert_eq!(config.tier_contract_hash, msg.tier_contract_hash);
@@ -628,6 +605,13 @@ mod test {
         assert_eq!(config.nft_contract_hash, msg.nft_contract_hash);
         assert_eq!(config.token_contract, token_contract);
         assert_eq!(config.token_contract_hash, msg.token_contract_hash);
+        assert_eq!(
+            config.max_payments,
+            msg.max_payments
+                .into_iter()
+                .map(|p| p.u128())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -658,9 +642,12 @@ mod test {
         let mut deps = initialize_with_default();
 
         let ido_owner = HumanAddr::from("ido_owner");
+        let canonical_ido_owner = deps.api.canonical_address(&ido_owner).unwrap();
         let env = mock_env(&ido_owner, &[]);
         let msg = start_ido_msg();
 
+        let startup_ido_list = state::startup_ido_list(&canonical_ido_owner);
+        assert_eq!(startup_ido_list.get_len(&deps.storage), Ok(0));
         assert_eq!(Ido::len(&deps.storage), Ok(0));
 
         let HandleResponse { messages, data, .. } =
@@ -676,6 +663,9 @@ mod test {
 
         assert_eq!(Ido::len(&deps.storage), Ok(1));
         let ido = Ido::load(&deps.storage, 0).unwrap();
+
+        let startup_ido_list = state::startup_ido_list(&canonical_ido_owner);
+        assert_eq!(startup_ido_list.get_len(&deps.storage), Ok(1));
 
         if let HandleMsg::StartIdo {
             start_time,
@@ -695,10 +685,10 @@ mod test {
             assert_eq!(ido.end_time, end_time);
             assert_eq!(ido.token_contract, token_contract_canonical);
             assert_eq!(ido.token_contract_hash, token_contract_hash);
-            assert_eq!(ido.price, price);
+            assert_eq!(ido.price, price.u128());
             assert_eq!(ido.participants, 0);
-            assert_eq!(ido.sold_amount, Uint128(0));
-            assert_eq!(ido.total_tokens_amount, total_amount);
+            assert_eq!(ido.sold_amount, 0);
+            assert_eq!(ido.total_tokens_amount, total_amount.u128());
 
             let whitelist_len = whitelist.unwrap().len() as u32;
             let ido_whitelist = state::ido_whitelist(0);
