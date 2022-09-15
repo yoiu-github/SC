@@ -85,22 +85,22 @@ pub enum HandleMsg {
     },
     WhitelistAdd {
         addresses: Vec<HumanAddr>,
-        ido_id: Option<u64>,
+        ido_id: Option<u32>,
     },
     WhitelistRemove {
         addresses: Vec<HumanAddr>,
-        ido_id: Option<u64>,
+        ido_id: Option<u32>,
     },
     BuyTokens {
-        ido_id: u64,
+        ido_id: u32,
         amount: Uint128,
         token_id: Option<String>,
     },
     RecvTokens {
-        ido_id: u64,
+        ido_id: u32,
     },
     Withdraw {
-        ido_id: u64,
+        ido_id: u32,
     },
 }
 
@@ -108,7 +108,7 @@ pub enum HandleMsg {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     StartIdo {
-        ido_id: u64,
+        ido_id: u32,
         whitelist_size: u32,
         status: ResponseStatus,
     },
@@ -137,14 +137,14 @@ pub enum HandleAnswer {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    IdoInfo { ido_id: u64 },
+    IdoInfo { ido_id: u32 },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     IdoInfo {
-        ido_id: u64,
+        ido_id: u32,
         start_time: u64,
         end_time: u64,
         token: HumanAddr,

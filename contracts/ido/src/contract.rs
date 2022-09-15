@@ -3,7 +3,7 @@ use crate::{
         HandleAnswer, HandleMsg, InitMsg, QueryMsg, ResponseStatus, TierContractQuery, TierReponse,
         TierTokenQuery,
     },
-    state::{Config, Ido, Purchase, Purchases, Whitelist},
+    state::{self, Config, Ido, Purchase},
     utils::assert_ido_owner,
 };
 use cosmwasm_std::{
@@ -29,10 +29,10 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let token_contract = deps.api.canonical_address(&msg.token_contract)?;
 
     if let Some(addresses) = msg.whitelist {
-        let mut whitelist = Whitelist::load(&deps.storage, None)?;
         for address in addresses {
             let canonical_address = deps.api.canonical_address(&address)?;
-            whitelist.add(&mut deps.storage, &canonical_address)?;
+            let whitelist = state::common_whitelist();
+            whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
         }
     }
 
@@ -112,10 +112,18 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     }
 
     let ido_id = ido.save(&mut deps.storage)?;
-    let mut whitelist = Whitelist::load(&deps.storage, Some(ido_id))?;
+    let ido_whitelist = state::ido_whitelist(ido_id);
+
     if let Some(whitelist_addresses) = whitelist_addresses {
-        whitelist.add_human_addresses(deps, &whitelist_addresses)?;
+        for address in whitelist_addresses {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            ido_whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
+        }
     }
+
+    let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
+    let startup_ido_list = state::startup_ido_list(&canonical_sender);
+    startup_ido_list.push(&mut deps.storage, &ido_id)?;
 
     let token_address = deps.api.human_address(&ido.token_contract)?;
     let transfer_msg = transfer_from_msg(
@@ -132,7 +140,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     let answer = to_binary(&HandleAnswer::StartIdo {
         ido_id,
         status: ResponseStatus::Success,
-        whitelist_size: whitelist.len(),
+        whitelist_size: ido_whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -145,16 +153,19 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
 fn get_tier<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
-    ido_id: u64,
+    ido_id: u32,
     token_id: Option<String>,
 ) -> StdResult<u8> {
     let config = Config::load(&deps.storage)?;
     let canonical_address = deps.api.canonical_address(&address)?;
 
     // If address not in whitelist, tier = 0
-    let whitelist = Whitelist::load(&deps.storage, Some(ido_id))?;
-    if !whitelist.contains(&deps.storage, &canonical_address)? {
-        return Ok(0);
+    let common_whitelist = state::common_whitelist();
+    if !common_whitelist.contains(&deps.storage, &canonical_address) {
+        let ido_whitelist = state::ido_whitelist(ido_id);
+        if !ido_whitelist.contains(&deps.storage, &canonical_address) {
+            return Ok(0);
+        }
     }
 
     let mut nft_tier = 0;
@@ -175,66 +186,82 @@ fn get_tier<S: Storage, A: Api, Q: Querier>(
     Ok(max(tier, nft_tier))
 }
 
-fn investor_can_buy<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    config: &Config,
-    investor: &HumanAddr,
-    ido_id: u64,
-    tier: u8,
-) -> StdResult<u128> {
-    let ido = Ido::load(&deps.storage, ido_id)?;
-    let remaning_amount = ido.remaining_amount();
-
-    if remaning_amount == 0 {
-        return Ok(0);
-    }
-
-    let canonical_investor = deps.api.canonical_address(investor)?;
-    let purchases = Purchases::load(&deps.storage, canonical_investor, ido_id)?;
-    let investor_payment = purchases.total_payment();
-
-    let max_payment = config.max_payments[tier as usize].u128();
-    let available_payment = max_payment.checked_sub(investor_payment).unwrap();
-    let max_tokens_allowed = available_payment.checked_div(ido.price.u128()).unwrap();
-
-    Ok(min(remaning_amount, max_tokens_allowed))
-}
-
 fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    ido_id: u64,
+    ido_id: u32,
     amount: u128,
     token_id: Option<String>,
 ) -> HandleResult {
     let mut ido = Ido::load(&deps.storage, ido_id)?;
-    let time = env.block.time;
+    let remaining_amount = ido.remaining_amount();
 
-    if !ido.is_active(time) {
+    if !ido.is_active(env.block.time) {
         return Err(StdError::generic_err("IDO is not active"));
     }
 
-    let investor = env.message.sender;
-    let config = Config::load(&deps.storage)?;
-    let tier = get_tier(deps, investor.clone(), ido_id, token_id)?;
-    let can_buy = investor_can_buy(deps, &config, &investor, ido_id, tier)?;
-
-    if can_buy == 0 {
-        let msg = if ido.remaining_amount() == 0 {
-            "All tokens are sold"
-        } else {
-            "You cannot buy more tokens with current tier"
-        };
-
-        return Err(StdError::generic_err(msg));
+    if remaining_amount == 0 {
+        return Err(StdError::generic_err("All tokens are sold"));
     }
 
-    if amount > can_buy {
-        let msg = format!("You cannot buy more than {} tokens", can_buy);
+    let sender = env.message.sender;
+    let canonical_sender = deps.api.canonical_address(&sender)?;
+
+    let investor_info = state::investor_ido_info(&canonical_sender);
+    let mut investor_ido_info = investor_info
+        .get(&deps.storage, &ido_id)
+        .unwrap_or_default();
+
+    let config = Config::load(&deps.storage)?;
+    let tier = get_tier(deps, sender.clone(), ido_id, token_id)?;
+    let max_tier_payment = config.max_payments[tier as usize].u128();
+
+    let current_payment = investor_ido_info.total_payment.u128();
+    let available_payment = max_tier_payment.checked_sub(current_payment).unwrap();
+    let max_tokens_amount = available_payment.checked_div(ido.price.u128()).unwrap();
+    let can_buy_tokens = min(max_tokens_amount, remaining_amount);
+
+    if can_buy_tokens == 0 {
+        return Err(StdError::generic_err(
+            "You cannot buy more tokens with current tier",
+        ));
+    }
+
+    if amount > can_buy_tokens {
+        let msg = format!("You cannot buy more than {} tokens", can_buy_tokens);
         return Err(StdError::generic_err(&msg));
     }
 
     let payment = amount.checked_mul(ido.price.u128()).unwrap();
+    let lock_period = config.lock_periods[tier as usize];
+
+    let unlock_time = env.block.time.checked_add(lock_period).unwrap();
+    let tokens_amount = Uint128(amount);
+    let purchase = Purchase {
+        tokens_amount,
+        unlock_time,
+    };
+
+    let investor_purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
+    investor_purchases.push_back(&mut deps.storage, &purchase)?;
+
+    investor_ido_info.total_payment = Uint128(
+        investor_ido_info
+            .total_payment
+            .u128()
+            .checked_add(payment)
+            .unwrap(),
+    );
+
+    investor_ido_info.total_tokens_bought = Uint128(
+        investor_ido_info
+            .total_tokens_bought
+            .u128()
+            .checked_add(amount)
+            .unwrap(),
+    );
+
+    investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
 
     ido.sold_amount = ido
         .sold_amount
@@ -250,24 +277,17 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         .map(Uint128)
         .unwrap();
 
-    let canonical_investor = deps.api.canonical_address(&investor)?;
-    let mut purchases = Purchases::load(&deps.storage, canonical_investor, ido_id)?;
-
-    if purchases.total_payment() == 0 {
+    if current_payment == 0 {
         ido.participants = ido.participants.checked_add(1).unwrap();
     }
 
     ido.save(&mut deps.storage)?;
 
-    let lock_period = config.lock_periods[tier as usize];
-    let purchase = Purchase::new(payment, amount, env.block.time, lock_period);
-    purchases.add(&purchase, &mut deps.storage)?;
-
     let token_address = deps.api.human_address(&ido.token_contract)?;
     let ido_owner = deps.api.human_address(&ido.owner)?;
 
     let transfer_msg = transfer_from_msg(
-        investor,
+        sender,
         ido_owner,
         Uint128(payment),
         None,
@@ -292,33 +312,62 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    ido_id: u64,
+    ido_id: u32,
 ) -> HandleResult {
-    let investor = deps.api.canonical_address(&env.message.sender)?;
+    let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
     let current_time = env.block.time;
 
-    let mut purchases = Purchases::load(&deps.storage, investor, ido_id)?;
-    let mut recv_amount: u128 = 0;
-    let mut index = 0;
+    let investor_info = state::investor_ido_info(&canonical_sender);
+    let mut investor_ido_info = investor_info
+        .get(&deps.storage, &ido_id)
+        .unwrap_or_default();
 
-    let len = purchases.len();
-    while index < len {
-        let purchase = purchases.get(index, &deps.storage)?;
-        index = index.checked_add(1).unwrap();
+    let purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
+    let purchases_iter = purchases.iter(&deps.storage)?;
+
+    let mut indices = Vec::new();
+    let mut recv_amount: u128 = 0;
+
+    for (i, purchase) in purchases_iter.enumerate() {
+        let purchase = purchase?;
 
         if purchase.unlock_time >= current_time {
-            break;
-        }
+            recv_amount = recv_amount
+                .checked_add(purchase.tokens_amount.u128())
+                .unwrap();
 
-        recv_amount = recv_amount
-            .checked_add(purchase.tokens_amount.u128())
-            .unwrap();
+            indices.push(i);
+        }
     }
 
-    purchases.remove(&mut deps.storage, index)?;
+    let answer = to_binary(&HandleAnswer::RecvTokens {
+        amount: Uint128(recv_amount),
+        status: ResponseStatus::Success,
+    })?;
+
+    if recv_amount == 0 {
+        return Ok(HandleResponse {
+            data: Some(answer),
+            ..Default::default()
+        });
+    }
+
+    investor_ido_info.total_tokens_received = Uint128(
+        investor_ido_info
+            .total_tokens_received
+            .u128()
+            .checked_add(recv_amount)
+            .unwrap(),
+    );
+
+    for (shift, index) in indices.into_iter().enumerate() {
+        let position = index.checked_sub(shift).unwrap();
+        purchases.remove(&mut deps.storage, position as u32)?;
+    }
 
     let ido = Ido::load(&deps.storage, ido_id)?;
     let token_contract = deps.api.human_address(&ido.token_contract)?;
+
     let transfer_msg = transfer_msg(
         env.message.sender,
         Uint128(recv_amount),
@@ -328,11 +377,6 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         ido.token_contract_hash,
         token_contract,
     )?;
-
-    let answer = to_binary(&HandleAnswer::RecvTokens {
-        amount: Uint128(recv_amount),
-        status: ResponseStatus::Success,
-    })?;
 
     Ok(HandleResponse {
         messages: vec![transfer_msg],
@@ -344,7 +388,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
 fn withdraw<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    ido_id: u64,
+    ido_id: u32,
 ) -> HandleResult {
     let mut ido = Ido::load(&deps.storage, ido_id)?;
     assert_ido_owner(&deps.api, &env, &ido)?;
@@ -389,7 +433,7 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
 fn check_whitelist_authority<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     sender: &HumanAddr,
-    ido_id: Option<u64>,
+    ido_id: Option<u32>,
 ) -> StdResult<()> {
     let sender = deps.api.canonical_address(sender)?;
 
@@ -412,16 +456,22 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     addresses: Vec<HumanAddr>,
-    ido_id: Option<u64>,
+    ido_id: Option<u32>,
 ) -> HandleResult {
     check_whitelist_authority(deps, &env.message.sender, ido_id)?;
 
-    let mut whitelist = Whitelist::load(&deps.storage, ido_id)?;
-    whitelist.add_human_addresses(deps, &addresses)?;
+    let whitelist = ido_id
+        .map(state::ido_whitelist)
+        .unwrap_or_else(state::common_whitelist);
+
+    for address in addresses {
+        let canonical_address = deps.api.canonical_address(&address)?;
+        whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
+    }
 
     let answer = to_binary(&HandleAnswer::WhitelistAdd {
         status: ResponseStatus::Success,
-        whitelist_size: whitelist.len(),
+        whitelist_size: whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -434,11 +484,14 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     addresses: Vec<HumanAddr>,
-    ido_id: Option<u64>,
+    ido_id: Option<u32>,
 ) -> HandleResult {
     check_whitelist_authority(deps, &env.message.sender, ido_id)?;
 
-    let mut whitelist = Whitelist::load(&deps.storage, None)?;
+    let whitelist = ido_id
+        .map(state::ido_whitelist)
+        .unwrap_or_else(state::common_whitelist);
+
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
         whitelist.remove(&mut deps.storage, &canonical_address)?;
@@ -446,7 +499,7 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
 
     let answer = to_binary(&HandleAnswer::WhitelistRemove {
         status: ResponseStatus::Success,
-        whitelist_size: whitelist.len(),
+        whitelist_size: whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -593,12 +646,10 @@ mod test {
         msg.whitelist = Some(whitelist_addresses.clone());
         let deps = initialize_with(msg).unwrap();
 
-        let whitelist = Whitelist::load(&deps.storage, None).unwrap();
+        let whitelist = state::common_whitelist();
         for address in whitelist_addresses {
             let canonical_address = deps.api.canonical_address(&address).unwrap();
-            assert!(whitelist
-                .contains(&deps.storage, &canonical_address)
-                .unwrap());
+            assert!(whitelist.contains(&deps.storage, &canonical_address));
         }
     }
 
@@ -650,8 +701,8 @@ mod test {
             assert_eq!(ido.total_tokens_amount, total_amount);
 
             let whitelist_len = whitelist.unwrap().len() as u32;
-            let whitelist = Whitelist::load(&deps.storage, Some(0)).unwrap();
-            assert_eq!(whitelist_len, whitelist.len());
+            let ido_whitelist = state::ido_whitelist(0);
+            assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(whitelist_len));
 
             let expected_message = transfer_from_msg(
                 env.message.sender,

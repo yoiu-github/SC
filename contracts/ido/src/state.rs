@@ -1,24 +1,34 @@
-use cosmwasm_std::{
-    Api, CanonicalAddr, Extern, HumanAddr, Querier, ReadonlyStorage, StdResult, Storage, Uint128,
-};
-use cosmwasm_storage::{bucket, bucket_read, singleton, singleton_read, Bucket, ReadonlyBucket};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
+use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
+use serde::{Deserialize, Serialize};
 
-pub const CONFIG_KEY: &[u8] = b"config";
-pub const IDO_LEN_KEY: &[u8] = b"idolen";
-pub const WHITELIST_KEY: &[u8] = b"whitelist";
+static CONFIG_KEY: Item<Config> = Item::new(b"config");
+static INVESTOR_IDO_INFO: Keymap<u32, InvestorIdoInfo> = Keymap::new(b"inv2idoinfo");
+static INVESTOR_IDO_PURCHASES: DequeStore<Purchase> = DequeStore::new(b"inv2purchases");
+static STARTUP_IDO_LIST: AppendStore<u32> = AppendStore::new(b"startup_idos");
 
-pub const PREFIX_WHITELIST_APPEND_STORE: &[u8] = b"app2wh";
-pub const PREFIX_INVESTOR_TO_WHITELIST_INDEX: &[u8] = b"in2idx";
-pub const PREFIX_ID_TO_IDO: &[u8] = b"id2ido";
-pub const PREFIX_ID_TO_INVESTOR_PURCHASES: &[u8] = b"id2ps";
-pub const PREFIX_INVESTOR_TO_IDO_INDEXES: &[u8] = b"inv2ids";
-pub const PREFIX_OWNER_TO_IDO_INDEXES: &[u8] = b"own2ids";
-pub const PREFIX_STARTUP_MAP: &[u8] = b"stp2ids";
+pub fn common_whitelist() -> Keymap<'static, CanonicalAddr, bool> {
+    Keymap::new(b"whitelist")
+}
 
-pub type IdoSize = u64;
-pub type WhitelistSize = u32;
-pub type PurchasesSize = u64;
+pub fn ido_whitelist(ido_id: u32) -> Keymap<'static, CanonicalAddr, bool> {
+    let whitelist = common_whitelist();
+    whitelist.add_suffix(&ido_id.to_le_bytes())
+}
+
+pub fn investor_ido_info(investor: &CanonicalAddr) -> Keymap<'static, u32, InvestorIdoInfo> {
+    INVESTOR_IDO_INFO.add_suffix(investor.as_slice())
+}
+
+pub fn investor_ido_purchases(investor: &CanonicalAddr, ido_id: u32) -> DequeStore<Purchase> {
+    INVESTOR_IDO_PURCHASES
+        .add_suffix(investor.as_slice())
+        .add_suffix(&ido_id.to_le_bytes())
+}
+
+pub fn startup_ido_list(owner: &CanonicalAddr) -> AppendStore<u32> {
+    STARTUP_IDO_LIST.add_suffix(owner.as_slice())
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -35,426 +45,31 @@ pub struct Config {
 
 impl Config {
     pub fn load<S: ReadonlyStorage>(storage: &S) -> StdResult<Self> {
-        singleton_read(storage, CONFIG_KEY).load()
+        CONFIG_KEY.load(storage)
     }
 
     pub fn save<S: Storage>(&self, storage: &mut S) -> StdResult<()> {
-        singleton(storage, CONFIG_KEY).save(self)
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Whitelist {
-    #[serde(skip)]
-    ido_id: Option<IdoSize>,
-
-    len: WhitelistSize,
-}
-
-impl Whitelist {
-    pub fn load<S: ReadonlyStorage>(storage: &S, ido_id: Option<IdoSize>) -> StdResult<Self> {
-        let whitelist: Option<Self> = if let Some(ido_id) = ido_id {
-            Ido::load(storage, ido_id)?;
-            bucket_read(WHITELIST_KEY, storage).may_load(&ido_id.to_le_bytes())?
-        } else {
-            singleton_read(storage, WHITELIST_KEY).may_load()?
-        };
-
-        Ok(Whitelist {
-            ido_id,
-            len: whitelist.map(|w| w.len).unwrap_or(0),
-        })
-    }
-
-    pub fn len(&self) -> WhitelistSize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    fn save<S: Storage>(&self, storage: &mut S) -> StdResult<()> {
-        if let Some(ido_id) = self.ido_id {
-            bucket(WHITELIST_KEY, storage).save(&ido_id.to_le_bytes(), self)
-        } else {
-            singleton(storage, WHITELIST_KEY).save(self)
-        }
-    }
-
-    fn bucket<'s, 'storage, S, T>(&'s self, storage: &'storage mut S, prefix: &[u8]) -> Bucket<S, T>
-    where
-        'storage: 's,
-        S: Storage,
-        T: Serialize + DeserializeOwned,
-    {
-        if let Some(ido_id) = self.ido_id {
-            Bucket::multilevel(&[prefix, &ido_id.to_le_bytes()], storage)
-        } else {
-            Bucket::new(prefix, storage)
-        }
-    }
-
-    fn bucket_read<'s, 'storage, S, T>(
-        &'s self,
-        storage: &'storage S,
-        prefix: &[u8],
-    ) -> ReadonlyBucket<S, T>
-    where
-        'storage: 's,
-        S: ReadonlyStorage,
-        T: Serialize + DeserializeOwned,
-    {
-        if let Some(ido_id) = self.ido_id {
-            ReadonlyBucket::multilevel(&[prefix, &ido_id.to_le_bytes()], storage)
-        } else {
-            ReadonlyBucket::new(prefix, storage)
-        }
-    }
-
-    pub fn get<S: ReadonlyStorage>(
-        &self,
-        storage: &S,
-        index: WhitelistSize,
-    ) -> StdResult<CanonicalAddr> {
-        let bucket = self.bucket_read(storage, PREFIX_WHITELIST_APPEND_STORE);
-        bucket.load(&index.to_le_bytes())
-    }
-
-    pub fn add_human_addresses<S: Storage, A: Api, Q: Querier>(
-        &mut self,
-        deps: &mut Extern<S, A, Q>,
-        addresses: &[HumanAddr],
-    ) -> StdResult<WhitelistSize> {
-        let mut counter: WhitelistSize = 0;
-        for address in addresses {
-            let canonical_address = deps.api.canonical_address(address)?;
-            let is_added = self.add(&mut deps.storage, &canonical_address)?;
-
-            if is_added {
-                counter = counter.checked_add(1).unwrap();
-            }
-        }
-
-        Ok(counter)
-    }
-
-    pub fn add<S: Storage>(&mut self, storage: &mut S, address: &CanonicalAddr) -> StdResult<bool> {
-        if self.contains(storage, address)? {
-            return Ok(false);
-        };
-
-        let index = self.len;
-
-        let mut bucket = self.bucket(storage, PREFIX_WHITELIST_APPEND_STORE);
-        bucket.save(&index.to_le_bytes(), address)?;
-
-        let mut bucket = self.bucket(storage, PREFIX_INVESTOR_TO_WHITELIST_INDEX);
-        bucket.save(address.as_slice(), &index)?;
-
-        self.len = self.len.checked_add(1).unwrap();
-        self.save(storage)?;
-
-        Ok(true)
-    }
-
-    pub fn remove_by_index<S: Storage>(
-        &mut self,
-        storage: &mut S,
-        index: WhitelistSize,
-    ) -> StdResult<CanonicalAddr> {
-        let bucket: ReadonlyBucket<S, CanonicalAddr> =
-            self.bucket_read(storage, PREFIX_WHITELIST_APPEND_STORE);
-
-        let address = bucket.load(&index.to_le_bytes())?;
-        self.remove(storage, &address)?;
-
-        Ok(address)
-    }
-
-    pub fn remove<S: Storage>(
-        &mut self,
-        storage: &mut S,
-        address: &CanonicalAddr,
-    ) -> StdResult<bool> {
-        if !self.contains(storage, address)? {
-            return Ok(false);
-        }
-
-        let mut bucket: Bucket<S, WhitelistSize> =
-            self.bucket(storage, PREFIX_INVESTOR_TO_WHITELIST_INDEX);
-
-        let index = bucket.load(address.as_slice())?;
-        bucket.remove(address.as_slice());
-
-        let mut bucket: Bucket<S, CanonicalAddr> =
-            self.bucket(storage, PREFIX_WHITELIST_APPEND_STORE);
-
-        bucket.remove(&index.to_le_bytes());
-
-        let last_index = self.len.checked_sub(1).unwrap();
-        if index != last_index {
-            let last_address = bucket.load(&last_index.to_le_bytes())?;
-            bucket.remove(&last_index.to_le_bytes());
-            bucket.save(&index.to_le_bytes(), &last_address)?;
-        }
-
-        self.len = last_index;
-        self.save(storage)?;
-
-        Ok(true)
-    }
-
-    pub fn contains<S: ReadonlyStorage>(
-        &self,
-        storage: &S,
-        address: &CanonicalAddr,
-    ) -> StdResult<bool> {
-        let in_main_whitelist: Option<WhitelistSize> =
-            bucket_read(PREFIX_INVESTOR_TO_WHITELIST_INDEX, storage)
-                .may_load(address.as_slice())?;
-
-        if in_main_whitelist.is_some() {
-            return Ok(true);
-        }
-
-        if let Some(ido_id) = self.ido_id {
-            let in_ido_whitelist: Option<WhitelistSize> = ReadonlyBucket::multilevel(
-                &[PREFIX_INVESTOR_TO_WHITELIST_INDEX, &ido_id.to_le_bytes()],
-                storage,
-            )
-            .may_load(address.as_slice())?;
-
-            return Ok(in_ido_whitelist.is_some());
-        }
-
-        Ok(false)
+        CONFIG_KEY.save(storage, self)
     }
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Purchase {
-    #[serde(skip)]
-    payment: Uint128,
     pub tokens_amount: Uint128,
-    pub payment_time: u64,
     pub unlock_time: u64,
 }
 
-impl Purchase {
-    pub fn new(payment: u128, tokens_amount: u128, payment_time: u64, lock_period: u64) -> Self {
-        let unlock_time = payment_time.checked_add(lock_period).unwrap();
-
-        Purchase {
-            payment: Uint128(payment),
-            tokens_amount: Uint128(tokens_amount),
-            payment_time,
-            unlock_time,
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Purchases {
-    #[serde(skip)]
-    ido_id: IdoSize,
-    #[serde(skip)]
-    investor: CanonicalAddr,
-
-    total_payment: Uint128,
-    index_from: PurchasesSize,
-    index_to: PurchasesSize,
-}
-
-impl Purchases {
-    pub fn load<S: ReadonlyStorage>(
-        storage: &S,
-        investor: CanonicalAddr,
-        ido_id: IdoSize,
-    ) -> StdResult<Self> {
-        Ido::load(storage, ido_id)?;
-
-        let bucket = ReadonlyBucket::multilevel(
-            &[PREFIX_ID_TO_INVESTOR_PURCHASES, &ido_id.to_le_bytes()],
-            storage,
-        );
-
-        let purchases: Option<Self> = bucket.may_load(investor.as_slice())?;
-        let mut purchases = purchases.unwrap_or_default();
-
-        purchases.investor = investor;
-        purchases.ido_id = ido_id;
-
-        Ok(purchases)
-    }
-
-    fn save<S: Storage>(&self, storage: &mut S) -> StdResult<()> {
-        let mut bucket = Bucket::multilevel(
-            &[PREFIX_ID_TO_INVESTOR_PURCHASES, &self.ido_id.to_le_bytes()],
-            storage,
-        );
-
-        bucket.save(self.investor.as_slice(), self)
-    }
-
-    pub fn total_payment(&self) -> u128 {
-        self.total_payment.u128()
-    }
-
-    pub fn len(&self) -> PurchasesSize {
-        self.index_to.checked_sub(self.index_from).unwrap()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn get<S: ReadonlyStorage>(
-        &self,
-        index: PurchasesSize,
-        storage: &S,
-    ) -> StdResult<Purchase> {
-        let bucket = ReadonlyBucket::multilevel(
-            &[
-                PREFIX_ID_TO_INVESTOR_PURCHASES,
-                &self.ido_id.to_le_bytes(),
-                self.investor.as_slice(),
-            ],
-            storage,
-        );
-
-        let index = index.checked_add(self.index_from).unwrap();
-        bucket.load(&index.to_le_bytes())
-    }
-
-    pub fn add<S: Storage>(&mut self, purchase: &Purchase, storage: &mut S) -> StdResult<()> {
-        let mut bucket = Bucket::multilevel(
-            &[
-                PREFIX_ID_TO_INVESTOR_PURCHASES,
-                &self.ido_id.to_le_bytes(),
-                self.investor.as_slice(),
-            ],
-            storage,
-        );
-
-        bucket.save(&self.index_to.to_le_bytes(), purchase)?;
-
-        let previous_payments = self.total_payment.u128();
-        let new_payment = purchase.payment.u128();
-
-        self.index_to = self.index_to.checked_add(1).unwrap();
-        self.total_payment = Uint128(previous_payments.checked_add(new_payment).unwrap());
-
-        self.save(storage)
-    }
-
-    pub fn remove<S: Storage>(
-        &mut self,
-        storage: &mut S,
-        index: PurchasesSize,
-    ) -> StdResult<Purchase> {
-        let index = index.checked_add(self.index_from).unwrap();
-
-        let mut bucket: Bucket<S, Purchase> = Bucket::multilevel(
-            &[
-                PREFIX_ID_TO_INVESTOR_PURCHASES,
-                &self.ido_id.to_le_bytes(),
-                self.investor.as_slice(),
-            ],
-            storage,
-        );
-
-        let first_purchase = bucket.load(&self.index_from.to_le_bytes())?;
-        let removed_purchase = bucket.load(&index.to_le_bytes())?;
-
-        // Copy first element to `index` and remove first
-        bucket.remove(&self.index_from.to_le_bytes());
-        if index != self.index_from {
-            bucket.save(&index.to_le_bytes(), &first_purchase)?;
-        }
-
-        self.index_from = self.index_from.checked_add(1).unwrap();
-        self.save(storage)?;
-
-        Ok(removed_purchase)
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub struct IdoAppendStorage {
-    #[serde(skip)]
-    prefix: &'static [u8],
-
-    #[serde(skip)]
-    address: CanonicalAddr,
-
-    ido_amount: IdoSize,
-}
-
-impl IdoAppendStorage {
-    fn load<S: ReadonlyStorage>(
-        storage: &S,
-        address: CanonicalAddr,
-        prefix: &'static [u8],
-    ) -> StdResult<Self> {
-        let info: Option<Self> = bucket_read(prefix, storage).may_load(address.as_slice())?;
-
-        let mut info = info.unwrap_or_default();
-        info.address = address;
-        info.prefix = prefix;
-
-        Ok(info)
-    }
-
-    pub fn ido_amount(&self) -> IdoSize {
-        self.ido_amount
-    }
-
-    fn save<S: Storage>(&mut self, storage: &mut S) -> StdResult<()> {
-        bucket(self.prefix, storage).save(self.address.as_slice(), self)
-    }
-
-    pub fn add_ido_id<S: Storage>(&mut self, storage: &mut S, ido_id: IdoSize) -> StdResult<()> {
-        let next_index = self.ido_amount;
-        let mut bucket = Bucket::multilevel(&[self.prefix, self.address.as_slice()], storage);
-        bucket.save(&next_index.to_le_bytes(), &ido_id)?;
-
-        self.ido_amount = self.ido_amount.checked_add(1).unwrap();
-        self.save(storage)
-    }
-
-    pub fn get_ido_id<S: ReadonlyStorage>(&self, storage: &S, index: u64) -> StdResult<u64> {
-        let bucket = ReadonlyBucket::multilevel(&[self.prefix, self.address.as_slice()], storage);
-        bucket.load(&index.to_le_bytes())
-    }
-}
-
-pub struct InvestorIdoList {}
-
-impl InvestorIdoList {
-    pub fn load<S: ReadonlyStorage>(
-        storage: &S,
-        address: CanonicalAddr,
-    ) -> StdResult<IdoAppendStorage> {
-        IdoAppendStorage::load(storage, address, PREFIX_INVESTOR_TO_IDO_INDEXES)
-    }
-}
-
-pub struct OwnerIdoList {}
-
-impl OwnerIdoList {
-    pub fn load<S: ReadonlyStorage>(
-        storage: &S,
-        address: CanonicalAddr,
-    ) -> StdResult<IdoAppendStorage> {
-        IdoAppendStorage::load(storage, address, PREFIX_OWNER_TO_IDO_INDEXES)
-    }
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InvestorIdoInfo {
+    pub total_payment: Uint128,
+    pub total_tokens_bought: Uint128,
+    pub total_tokens_received: Uint128,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Ido {
     #[serde(skip)]
-    id: Option<IdoSize>,
+    id: Option<u32>,
     pub owner: CanonicalAddr,
     pub start_time: u64,
     pub end_time: u64,
@@ -469,50 +84,50 @@ pub struct Ido {
 }
 
 impl Ido {
-    pub fn load<S: ReadonlyStorage>(storage: &S, id: IdoSize) -> StdResult<Self> {
-        let mut ido: Ido = bucket_read(PREFIX_ID_TO_IDO, storage).load(&id.to_le_bytes())?;
-        ido.id = Some(id);
+    fn list() -> AppendStore<'static, Self> {
+        AppendStore::new(b"ido")
+    }
 
+    pub fn load<S: ReadonlyStorage>(storage: &S, id: u32) -> StdResult<Self> {
+        let list = Ido::list();
+        let mut ido = list.get_at(storage, id)?;
+        ido.id = Some(id);
         Ok(ido)
     }
 
-    pub fn is_active(&self, time: u64) -> bool {
-        time >= self.start_time && time < self.end_time
+    pub fn len<S: Storage>(storage: &S) -> StdResult<u32> {
+        let list = Ido::list();
+        list.get_len(storage)
     }
 
-    pub fn remaining_amount(&self) -> u128 {
-        self.total_tokens_amount
-            .u128()
-            .checked_sub(self.sold_amount.u128())
-            .unwrap()
+    pub fn save<S: Storage>(&mut self, storage: &mut S) -> StdResult<u32> {
+        let list = Ido::list();
+
+        let id = if let Some(id) = self.id {
+            list.set_at(storage, id, self)?;
+            id
+        } else {
+            let id = list.get_len(storage)?;
+            self.id = Some(id);
+            list.push(storage, self)?;
+            id
+        };
+
+        Ok(id)
     }
 
-    pub fn id(&self) -> Option<IdoSize> {
+    pub fn id(&self) -> Option<u32> {
         self.id
     }
 
-    pub fn save<S: Storage>(&mut self, storage: &mut S) -> StdResult<IdoSize> {
-        if self.id.is_none() {
-            let id = Ido::len(storage)?;
-            self.id = Some(id);
-
-            let new_len = id.checked_add(1).unwrap();
-            Ido::set_len(storage, new_len)?;
-        }
-
-        let id = self.id.unwrap();
-        bucket(PREFIX_ID_TO_IDO, storage)
-            .save(&id.to_le_bytes(), self)
-            .map(|_| id)
+    pub fn is_active(&self, current_time: u64) -> bool {
+        current_time >= self.start_time && current_time < self.end_time
     }
 
-    fn set_len<S: Storage>(storage: &mut S, len: IdoSize) -> StdResult<()> {
-        singleton(storage, IDO_LEN_KEY).save(&len)
-    }
-
-    pub fn len<S: ReadonlyStorage>(storage: &S) -> StdResult<IdoSize> {
-        let len: Option<IdoSize> = singleton_read(storage, IDO_LEN_KEY).may_load()?;
-        Ok(len.unwrap_or(0))
+    pub fn remaining_amount(&self) -> u128 {
+        let total_amount = self.total_tokens_amount.u128();
+        let sold_amount = self.sold_amount.u128();
+        total_amount.checked_sub(sold_amount).unwrap()
     }
 }
 
@@ -520,191 +135,6 @@ impl Ido {
 mod test {
     use super::*;
     use cosmwasm_std::{testing::mock_dependencies, Api, HumanAddr};
-    use rand::{thread_rng, Rng};
-
-    #[test]
-    fn whitelist() {
-        let mut deps = mock_dependencies(20, &[]);
-        let storage = &mut deps.storage;
-        let human_address = HumanAddr::from("address");
-        let address = deps.api.canonical_address(&human_address).unwrap();
-
-        let mut whitelist = Whitelist::load(storage, None).unwrap();
-        assert!(whitelist.is_empty());
-        assert_eq!(whitelist.len(), 0);
-        assert_eq!(whitelist.contains(storage, &address), Ok(false));
-
-        assert_eq!(whitelist.add(storage, &address), Ok(true));
-        assert_eq!(whitelist.len(), 1);
-        assert!(!whitelist.is_empty());
-
-        assert_eq!(whitelist.contains(storage, &address), Ok(true));
-        assert_eq!(whitelist.add(storage, &address), Ok(false));
-
-        assert_eq!(whitelist.remove(storage, &address), Ok(true));
-        assert_eq!(whitelist.contains(storage, &address), Ok(false));
-
-        assert!(whitelist.is_empty());
-        assert_eq!(whitelist.len(), 0);
-
-        assert_eq!(whitelist.remove(storage, &address), Ok(false));
-    }
-
-    #[test]
-    fn whitelist_multiple_addresses() {
-        let mut deps = mock_dependencies(20, &[]);
-        let storage = &mut deps.storage;
-
-        let mut common_addresses = (0..100)
-            .map(|i| {
-                let human_address = format!("whitelist_{}", i);
-                deps.api
-                    .canonical_address(&HumanAddr(human_address))
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let mut whitelist = Whitelist::load(storage, None).unwrap();
-        for (i, address) in common_addresses.iter().enumerate() {
-            assert_eq!(whitelist.len(), i as WhitelistSize);
-            assert_eq!(whitelist.contains(storage, address), Ok(false));
-
-            whitelist.add(storage, address).unwrap();
-            assert_eq!(whitelist.contains(storage, address), Ok(true));
-        }
-
-        for (i, expected) in common_addresses.iter().enumerate() {
-            let canonical_address = whitelist.get(storage, i as WhitelistSize).unwrap();
-            assert_eq!(canonical_address, *expected);
-        }
-
-        assert!(whitelist.get(storage, whitelist.len()).is_err());
-
-        let loaded_whitelist = Whitelist::load(storage, None).unwrap();
-        assert_eq!(whitelist, loaded_whitelist);
-
-        assert!(Whitelist::load(storage, Some(0)).is_err());
-        let ido_id = Ido::default().save(storage).unwrap();
-
-        let mut ido_whitelist = Whitelist::load(storage, Some(ido_id)).unwrap();
-        assert!(ido_whitelist.is_empty());
-        assert_eq!(ido_whitelist.len(), 0);
-
-        let ido_addresses = (0..100)
-            .map(|i| {
-                let human_address = format!("ido_whitelist_{}", i);
-                deps.api
-                    .canonical_address(&HumanAddr(human_address))
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        for (i, address) in ido_addresses.iter().enumerate() {
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(false));
-            assert_eq!(ido_whitelist.len(), i as WhitelistSize);
-
-            ido_whitelist.add(storage, address).unwrap();
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(true));
-        }
-
-        for (i, expected) in ido_addresses.iter().enumerate() {
-            let address = ido_whitelist.get(storage, i as WhitelistSize).unwrap();
-            assert_eq!(address, *expected);
-        }
-
-        assert!(ido_whitelist.get(storage, ido_whitelist.len()).is_err());
-
-        let ido_id = Ido::default().save(storage).unwrap();
-        let another_ido_whitelist = Whitelist::load(storage, Some(ido_id)).unwrap();
-        assert!(another_ido_whitelist.is_empty());
-        assert!(another_ido_whitelist.get(storage, 0).is_err());
-        assert_eq!(another_ido_whitelist.len(), 0);
-
-        for address in common_addresses.iter() {
-            assert_eq!(whitelist.contains(storage, address), Ok(true));
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(true));
-            assert_eq!(another_ido_whitelist.contains(storage, address), Ok(true));
-        }
-
-        for address in ido_addresses.iter() {
-            assert_eq!(whitelist.contains(storage, address), Ok(false));
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(true));
-            assert_eq!(another_ido_whitelist.contains(storage, address), Ok(false));
-        }
-
-        let address = whitelist.remove_by_index(storage, 99).unwrap();
-        assert_eq!(address, common_addresses[99]);
-        assert_eq!(whitelist.len(), 99);
-        assert_eq!(whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(ido_whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(another_ido_whitelist.contains(storage, &address), Ok(false));
-
-        let address = whitelist.remove_by_index(storage, 50).unwrap();
-        assert_eq!(address, common_addresses[50]);
-        assert_eq!(whitelist.len(), 98);
-        assert_eq!(whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(ido_whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(another_ido_whitelist.contains(storage, &address), Ok(false));
-
-        let address = whitelist.remove_by_index(storage, 0).unwrap();
-        assert_eq!(address, common_addresses[0]);
-        assert_eq!(whitelist.len(), 97);
-        assert_eq!(whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(ido_whitelist.contains(storage, &address), Ok(false));
-        assert_eq!(another_ido_whitelist.contains(storage, &address), Ok(false));
-
-        common_addresses.remove(99);
-        common_addresses[50] = common_addresses.remove(98);
-        common_addresses[0] = common_addresses.remove(97);
-
-        for address in common_addresses.iter() {
-            assert_eq!(whitelist.contains(storage, address), Ok(true));
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(true));
-            assert_eq!(another_ido_whitelist.contains(storage, address), Ok(true));
-        }
-
-        for address in ido_addresses.iter() {
-            assert_eq!(whitelist.contains(storage, address), Ok(false));
-            assert_eq!(ido_whitelist.contains(storage, address), Ok(true));
-            assert_eq!(another_ido_whitelist.contains(storage, address), Ok(false));
-        }
-
-        let loaded_whitelist = Whitelist::load(storage, None).unwrap();
-        assert_eq!(whitelist, loaded_whitelist);
-
-        let loaded_ido_whitelist = Whitelist::load(storage, Some(0)).unwrap();
-        assert_eq!(ido_whitelist, loaded_ido_whitelist);
-    }
-
-    #[test]
-    fn ido_list() {
-        let deps = mock_dependencies(20, &[]);
-        let mut storage = deps.storage;
-
-        let address = HumanAddr::from("investor");
-        let canonical_address = deps.api.canonical_address(&address).unwrap();
-        let mut ido_list = InvestorIdoList::load(&storage, canonical_address.clone()).unwrap();
-
-        assert_eq!(ido_list.ido_amount(), 0);
-        assert!(ido_list.get_ido_id(&storage, 0).is_err());
-
-        let mut rng = thread_rng();
-        let ido_id = rng.gen();
-        ido_list.add_ido_id(&mut storage, ido_id).unwrap();
-
-        assert_eq!(ido_list.ido_amount(), 1);
-        assert_eq!(ido_list.get_ido_id(&storage, 0), Ok(ido_id));
-
-        let new_ido_id = rng.gen();
-        ido_list.add_ido_id(&mut storage, new_ido_id).unwrap();
-
-        assert_eq!(ido_list.ido_amount(), 2);
-        assert_eq!(ido_list.get_ido_id(&storage, 0), Ok(ido_id));
-        assert_eq!(ido_list.get_ido_id(&storage, 1), Ok(new_ido_id));
-
-        let loaded_ido_list = InvestorIdoList::load(&storage, canonical_address).unwrap();
-        assert_eq!(ido_list, loaded_ido_list);
-    }
 
     #[test]
     fn ido() {
@@ -751,80 +181,5 @@ mod test {
         loaded_ido.save(&mut storage).unwrap();
         assert_eq!(loaded_ido.id(), Some(1));
         assert_eq!(Ido::len(&storage), Ok(2));
-    }
-
-    #[test]
-    fn purchases() {
-        let deps = mock_dependencies(20, &[]);
-        let mut storage = deps.storage;
-
-        let investor = deps.api.canonical_address(&HumanAddr::from("001")).unwrap();
-        assert!(Purchases::load(&storage, investor.clone(), 0).is_err());
-
-        let ido_id = Ido::default().save(&mut storage).unwrap();
-        let mut purchases = Purchases::load(&storage, investor.clone(), ido_id).unwrap();
-
-        assert!(purchases.is_empty());
-        assert!(purchases.remove(&mut storage, 0).is_err());
-
-        let mut purchases_vector = (0..10)
-            .map(|i| Purchase {
-                payment: Uint128(10 * i),
-                payment_time: i as u64,
-                unlock_time: 10 + i as u64,
-                tokens_amount: Uint128(i + 100),
-            })
-            .collect::<Vec<_>>();
-
-        for (i, purchase) in purchases_vector.iter().enumerate() {
-            purchases.add(purchase, &mut storage).unwrap();
-            assert_eq!(purchases.len(), 1 + i as PurchasesSize);
-            assert_eq!(purchases.total_payment() as usize, 5 * i * (i + 1));
-            assert!(!purchases.is_empty());
-        }
-
-        for purchase in purchases_vector.iter_mut() {
-            purchase.payment = Uint128(0);
-        }
-
-        assert!(purchases.remove(&mut storage, 11).is_err());
-        assert_eq!(purchases.len(), 10);
-
-        for i in 0..10 {
-            let loaded_purchase = purchases.get(i, &storage).unwrap();
-            assert_eq!(loaded_purchase.tokens_amount, Uint128(100 + i as u128));
-            assert_eq!(loaded_purchase.payment_time, i);
-            assert_eq!(loaded_purchase.unlock_time, 10 + i);
-        }
-
-        assert!(purchases.get(10, &storage).is_err());
-
-        let removed_purchase = purchases.remove(&mut storage, 0).unwrap();
-        assert_eq!(removed_purchase, purchases_vector[0]);
-        assert_eq!(purchases.len(), 9);
-        assert!(purchases.get(9, &storage).is_err());
-
-        purchases_vector.remove(0);
-
-        for (i, purchase) in purchases_vector.iter().enumerate() {
-            let loaded_purchase = purchases.get(i as PurchasesSize, &storage).unwrap();
-            assert_eq!(loaded_purchase, *purchase);
-        }
-
-        let removed_purchase = purchases.remove(&mut storage, 4).unwrap();
-        assert_eq!(removed_purchase, purchases_vector[4]);
-        assert_eq!(purchases.len(), 8);
-        assert!(purchases.get(8, &storage).is_err());
-
-        purchases_vector[4] = purchases_vector[0].clone();
-        purchases_vector.remove(0);
-
-        for (i, purchase) in purchases_vector.iter().enumerate() {
-            let loaded_purchase = purchases.get(i as PurchasesSize, &storage).unwrap();
-            assert_eq!(loaded_purchase, *purchase);
-        }
-
-        let loaded_purchases = Purchases::load(&storage, investor, ido_id).unwrap();
-        assert_eq!(loaded_purchases, purchases);
     }
 }
