@@ -97,7 +97,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::WhitelistRemove { addresses, ido_id } => {
             whitelist_remove(deps, env, addresses, ido_id)
         }
-
         HandleMsg::RecvTokens {
             ido_id,
             start,
@@ -247,6 +246,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let unlock_time = env.block.time.checked_add(lock_period).unwrap();
     let tokens_amount = Uint128(amount);
     let purchase = Purchase {
+        timestamp: env.block.time,
         tokens_amount: tokens_amount.u128(),
         unlock_time,
     };
@@ -331,7 +331,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     for (i, purchase) in purchases_iter.enumerate() {
         let purchase = purchase?;
 
-        if purchase.unlock_time >= current_time {
+        if current_time >= purchase.unlock_time {
             recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
             indices.push(i);
         }
@@ -345,7 +345,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
             }
 
             let purchase = purchases.get_at(&deps.storage, index)?;
-            if purchase.unlock_time >= current_time {
+            if current_time >= purchase.unlock_time {
                 recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
                 indices.push(index as usize);
             }
@@ -368,6 +368,8 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         .total_tokens_received
         .checked_add(recv_amount)
         .unwrap();
+
+    investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
 
     for (shift, index) in indices.into_iter().enumerate() {
         let position = index.checked_sub(shift).unwrap();
@@ -526,6 +528,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
 
 #[cfg(test)]
 mod test {
+    use crate::state::InvestorIdoInfo;
+
     use super::*;
     use cosmwasm_std::{
         from_binary,
@@ -861,9 +865,10 @@ mod test {
             .collect::<Vec<_>>();
 
         msg.whitelist = Some(whitelist_addresses.clone());
-        let mut deps = initialize_with(msg).unwrap();
 
+        let mut deps = initialize_with(msg).unwrap();
         let mut start_ido_msg = start_ido_msg();
+
         if let HandleMsg::StartIdo {
             ref mut whitelist, ..
         } = start_ido_msg
@@ -966,5 +971,172 @@ mod test {
             assert!(!common_whitelist.contains(&deps.storage, &canonical_address));
             assert!(ido_whitelist.contains(&deps.storage, &canonical_address));
         }
+    }
+
+    fn generate_purchases(amount: usize) -> Vec<Purchase> {
+        let mut rng = thread_rng();
+        let mut purchases = Vec::with_capacity(amount);
+
+        for _ in 0..purchases.capacity() {
+            let purchase = Purchase {
+                timestamp: 0,
+                tokens_amount: rng.gen_range(0..10),
+                unlock_time: rng.gen_range(1..1000),
+            };
+
+            purchases.push(purchase);
+        }
+
+        purchases
+    }
+
+    fn prepare_for_receive_tokens(
+        purchases: &[Purchase],
+    ) -> Extern<MockStorage, MockApi, MockQuerier> {
+        let msg = get_init_msg();
+        let mut deps = initialize_with(msg).unwrap();
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let mut ido = Ido::default();
+        ido.token_contract = canonical_token_contract;
+        ido.save(&mut deps.storage).unwrap();
+
+        let investor = HumanAddr::from("investor");
+        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
+        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
+        for purchase in purchases.iter() {
+            investor_purchases
+                .push_back(&mut deps.storage, purchase)
+                .unwrap();
+        }
+
+        let total_tokens_amount = purchases.iter().map(|p| p.tokens_amount).sum();
+        let investor_info = state::investor_ido_info(&canonical_investor);
+
+        let info = InvestorIdoInfo {
+            total_payment: 0,
+            total_tokens_bought: total_tokens_amount,
+            total_tokens_received: 0,
+        };
+
+        investor_info.insert(&mut deps.storage, &0, &info).unwrap();
+        deps
+    }
+
+    #[test]
+    fn recv_tokens() {
+        let amount = 500;
+        let purchases = generate_purchases(amount);
+        let mut deps = prepare_for_receive_tokens(&purchases);
+
+        let investor = HumanAddr::from("investor");
+        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
+
+        let investor_info = state::investor_ido_info(&canonical_investor);
+        let info = investor_info.get(&deps.storage, &0).unwrap();
+        let total_tokens_amount = info.total_tokens_bought;
+
+        let mut env = mock_env(investor.clone(), &[]);
+        env.block.time = 0;
+
+        let recv_tokens_msg = HandleMsg::RecvTokens {
+            ido_id: 0,
+            start: None,
+            limit: Some(amount as u32),
+            purchase_indices: None,
+        };
+
+        let response = handle(&mut deps, env.clone(), recv_tokens_msg.clone()).unwrap();
+        assert!(response.messages.is_empty());
+
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::RecvTokens { amount, status } => {
+                assert_eq!(amount, Uint128(0));
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let time = 500;
+        env.block.time = time;
+
+        let recv_amount = purchases
+            .iter()
+            .filter(|p| p.unlock_time <= time)
+            .map(|p| p.tokens_amount)
+            .sum();
+
+        let response = handle(&mut deps, env.clone(), recv_tokens_msg.clone()).unwrap();
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::RecvTokens { amount, status } => {
+                assert_eq!(amount, Uint128(recv_amount));
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let ido = Ido::load(&deps.storage, 0).unwrap();
+        let token_contract = deps.api.human_address(&ido.token_contract).unwrap();
+        let expected_message = transfer_msg(
+            investor.clone(),
+            Uint128(recv_amount),
+            None,
+            None,
+            BLOCK_SIZE,
+            ido.token_contract_hash.clone(),
+            token_contract.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0], expected_message);
+
+        let investor_info = state::investor_ido_info(&canonical_investor);
+        let info = investor_info.get(&deps.storage, &0).unwrap();
+        assert_eq!(info.total_tokens_bought, total_tokens_amount);
+        assert_eq!(info.total_tokens_received, recv_amount);
+
+        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
+        let investor_purchases_iter = investor_purchases.iter(&deps.storage).unwrap();
+        for purchase in investor_purchases_iter {
+            assert!(time < purchase.unwrap().unlock_time);
+        }
+
+        env.block.time = 1000;
+
+        let response = handle(&mut deps, env, recv_tokens_msg).unwrap();
+        let recv_amount = total_tokens_amount - recv_amount;
+
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::RecvTokens { amount, status } => {
+                assert_eq!(amount, Uint128(recv_amount));
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let expected_message = transfer_msg(
+            investor,
+            Uint128(recv_amount),
+            None,
+            None,
+            BLOCK_SIZE,
+            ido.token_contract_hash,
+            token_contract,
+        )
+        .unwrap();
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0], expected_message);
+
+        let investor_info = state::investor_ido_info(&canonical_investor);
+        let info = investor_info.get(&deps.storage, &0).unwrap();
+        assert_eq!(info.total_tokens_bought, total_tokens_amount);
+        assert_eq!(info.total_tokens_received, total_tokens_amount);
+
+        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
+        assert_eq!(investor_purchases.get_len(&deps.storage), Ok(0));
     }
 }

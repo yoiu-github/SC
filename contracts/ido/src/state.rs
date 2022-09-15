@@ -56,6 +56,7 @@ impl Config {
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Purchase {
     pub tokens_amount: u128,
+    pub timestamp: u64,
     pub unlock_time: u64,
 }
 
