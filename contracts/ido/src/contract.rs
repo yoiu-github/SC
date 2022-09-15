@@ -12,7 +12,10 @@ use cosmwasm_std::{
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
 use secret_toolkit_utils::Query;
-use std::cmp::{max, min};
+use std::{
+    cmp::{max, min},
+    collections::HashSet,
+};
 
 const BLOCK_SIZE: usize = 256;
 
@@ -95,7 +98,12 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             whitelist_remove(deps, env, addresses, ido_id)
         }
 
-        HandleMsg::RecvTokens { ido_id } => recv_tokens(deps, env, ido_id),
+        HandleMsg::RecvTokens {
+            ido_id,
+            start,
+            limit,
+            purchase_indices,
+        } => recv_tokens(deps, env, ido_id, start, limit, purchase_indices),
         HandleMsg::Withdraw { ido_id } => withdraw(deps, env, ido_id),
     }
 }
@@ -297,6 +305,9 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     ido_id: u32,
+    start_from: Option<u32>,
+    limit: Option<u32>,
+    purchase_indices: Option<HashSet<u32>>,
 ) -> HandleResult {
     let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
     let current_time = env.block.time;
@@ -306,8 +317,13 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         .get(&deps.storage, &ido_id)
         .unwrap_or_default();
 
+    let start = start_from.unwrap_or(0);
+    let limit = limit.unwrap_or(300);
     let purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
-    let purchases_iter = purchases.iter(&deps.storage)?;
+    let purchases_iter = purchases
+        .iter(&deps.storage)?
+        .skip(start as usize)
+        .take(limit as usize);
 
     let mut indices = Vec::new();
     let mut recv_amount: u128 = 0;
@@ -318,6 +334,21 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         if purchase.unlock_time >= current_time {
             recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
             indices.push(i);
+        }
+    }
+
+    if let Some(purhcase_indices) = purchase_indices {
+        let end = start.checked_add(limit).unwrap();
+        for index in purhcase_indices {
+            if index > start && index < end {
+                continue;
+            }
+
+            let purchase = purchases.get_at(&deps.storage, index)?;
+            if purchase.unlock_time >= current_time {
+                recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
+                indices.push(index as usize);
+            }
         }
     }
 
@@ -568,6 +599,7 @@ mod test {
             Err(err) => match err {
                 StdError::GenericErr { msg, .. } => msg,
                 StdError::Unauthorized { .. } => "Unauthorized".into(),
+                StdError::NotFound { .. } => "Not found".into(),
                 _ => panic!("Unexpected error"),
             },
         }
@@ -710,6 +742,229 @@ mod test {
             assert_eq!(messages[0], expected_message);
         } else {
             unreachable!();
+        }
+    }
+
+    #[test]
+    fn whitelist_add() {
+        let msg = get_init_msg();
+        let mut deps = initialize_with(msg).unwrap();
+
+        let whitelist = state::common_whitelist();
+        assert_eq!(whitelist.get_len(&deps.storage), Ok(0));
+
+        let address = HumanAddr::from("whitelisted");
+        let canonical_address = deps.api.canonical_address(&address).unwrap();
+        let add_whitelist_msg = HandleMsg::WhitelistAdd {
+            addresses: vec![address.clone()],
+            ido_id: None,
+        };
+
+        let unauthorized_user = HumanAddr::from("unauthorized");
+        let env = mock_env(unauthorized_user.clone(), &[]);
+
+        let response = handle(&mut deps, env, add_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let owner = HumanAddr::from("owner");
+        let env = mock_env(owner.clone(), &[]);
+        handle(&mut deps, env, add_whitelist_msg.clone()).unwrap();
+
+        let common_whitelist = state::common_whitelist();
+        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(1));
+        assert_eq!(
+            common_whitelist.get(&deps.storage, &canonical_address),
+            Some(true)
+        );
+
+        let whitelist_addresses = common_whitelist.paging_keys(&deps.storage, 0, 100).unwrap();
+        assert_eq!(whitelist_addresses, vec![canonical_address.clone()]);
+
+        let env = mock_env(unauthorized_user, &[]);
+        let new_address = HumanAddr::from("new_address");
+        let canonical_new_address = deps.api.canonical_address(&new_address).unwrap();
+
+        let add_ido_whitelist_msg = HandleMsg::WhitelistAdd {
+            addresses: vec![address, new_address],
+            ido_id: Some(0),
+        };
+
+        let response = handle(&mut deps, env.clone(), add_ido_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Not found"));
+
+        let ido_owner = HumanAddr::from("ido_owner");
+        let ido_owner_canonical = deps.api.canonical_address(&ido_owner).unwrap();
+
+        let mut ido = Ido::default();
+        ido.owner = ido_owner_canonical;
+
+        ido.save(&mut deps.storage).unwrap();
+        let response = handle(&mut deps, env, add_ido_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(owner, &[]);
+        let response = handle(&mut deps, env, add_ido_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(ido_owner, &[]);
+        let response = handle(&mut deps, env.clone(), add_whitelist_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        handle(&mut deps, env, add_ido_whitelist_msg).unwrap();
+
+        let ido_whitelist = state::ido_whitelist(0);
+        assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(2));
+        assert_eq!(
+            ido_whitelist.get(&deps.storage, &canonical_address),
+            Some(true)
+        );
+        assert_eq!(
+            ido_whitelist.get(&deps.storage, &canonical_new_address),
+            Some(true)
+        );
+
+        let whitelist_addresses = ido_whitelist.paging_keys(&deps.storage, 0, 100).unwrap();
+        assert_eq!(
+            whitelist_addresses,
+            vec![canonical_address.clone(), canonical_new_address]
+        );
+
+        let common_whitelist = state::common_whitelist();
+        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(1));
+        assert_eq!(
+            common_whitelist.get(&deps.storage, &canonical_address),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn whitelist_remove() {
+        let mut msg = get_init_msg();
+
+        let whitelist_len = 30;
+        let mut whitelist_addresses = Vec::with_capacity(whitelist_len);
+
+        for i in 0..whitelist_len {
+            let address_str = format!("{:03}", i);
+            let address = HumanAddr(address_str);
+            whitelist_addresses.push(address);
+        }
+
+        let whitelist_ido_addresses = whitelist_addresses
+            .iter()
+            .map(|a| format!("ido_{}", a).into())
+            .collect::<Vec<_>>();
+
+        msg.whitelist = Some(whitelist_addresses.clone());
+        let mut deps = initialize_with(msg).unwrap();
+
+        let mut start_ido_msg = start_ido_msg();
+        if let HandleMsg::StartIdo {
+            ref mut whitelist, ..
+        } = start_ido_msg
+        {
+            whitelist.replace(whitelist_ido_addresses.clone());
+        }
+
+        let owner = HumanAddr::from("owner");
+        let ido_owner = HumanAddr::from("ido_owner");
+        let env = mock_env(ido_owner.clone(), &[]);
+        handle(&mut deps, env, start_ido_msg).unwrap();
+
+        let remove_whitelist_msg = HandleMsg::WhitelistRemove {
+            addresses: whitelist_addresses[10..20].to_vec(),
+            ido_id: None,
+        };
+
+        let unauthorized_user = HumanAddr::from("unauthorized");
+
+        let env = mock_env(unauthorized_user.clone(), &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(ido_owner.clone(), &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(owner.clone(), &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg).unwrap();
+
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::WhitelistRemove {
+                whitelist_size,
+                status,
+            } => {
+                assert_eq!(whitelist_size, 20);
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let common_whitelist = state::common_whitelist();
+        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(20));
+
+        for address in whitelist_addresses[10..20].iter() {
+            let canonical_address = deps.api.canonical_address(address).unwrap();
+            assert!(!common_whitelist.contains(&deps.storage, &canonical_address));
+        }
+
+        let remove_whitelist_msg = HandleMsg::WhitelistRemove {
+            addresses: whitelist_ido_addresses[10..].to_vec(),
+            ido_id: Some(0),
+        };
+
+        let env = mock_env(unauthorized_user, &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(owner, &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(ido_owner, &[]);
+        let response = handle(&mut deps, env, remove_whitelist_msg).unwrap();
+
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::WhitelistRemove {
+                whitelist_size,
+                status,
+            } => {
+                assert_eq!(whitelist_size, 10);
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let ido_whitelist = state::ido_whitelist(0);
+        assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(10));
+
+        for address in whitelist_ido_addresses[10..].iter() {
+            let canonical_address = deps.api.canonical_address(address).unwrap();
+            assert!(!ido_whitelist.contains(&deps.storage, &canonical_address));
+        }
+
+        for address in whitelist_addresses[..10]
+            .iter()
+            .chain(whitelist_addresses[20..].iter())
+        {
+            let canonical_address = deps.api.canonical_address(address).unwrap();
+            assert!(common_whitelist.contains(&deps.storage, &canonical_address));
+            assert!(!ido_whitelist.contains(&deps.storage, &canonical_address));
+        }
+
+        for address in whitelist_ido_addresses[..10].iter() {
+            let canonical_address = deps.api.canonical_address(address).unwrap();
+            assert!(!common_whitelist.contains(&deps.storage, &canonical_address));
+            assert!(ido_whitelist.contains(&deps.storage, &canonical_address));
         }
     }
 }
