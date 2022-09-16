@@ -4,7 +4,6 @@ use crate::{
         TierReponse, TierTokenQuery,
     },
     state::{self, Config, Ido, Purchase},
-    utils::assert_ido_owner,
 };
 use cosmwasm_std::{
     to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
@@ -432,7 +431,12 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     ido_id: u32,
 ) -> HandleResult {
     let mut ido = Ido::load(&deps.storage, ido_id)?;
-    assert_ido_owner(&deps.api, &env, &ido)?;
+
+    let ido_owner = env.message.sender;
+    let canonical_ido_owner = deps.api.canonical_address(&ido_owner)?;
+    if canonical_ido_owner != ido.owner {
+        return Err(StdError::unauthorized());
+    }
 
     if ido.withdrawn {
         return Err(StdError::generic_err("Already withdrawn"));
@@ -451,8 +455,6 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     }
 
     let ido_token_contract = deps.api.human_address(&ido.token_contract)?;
-    let ido_owner = deps.api.human_address(&ido.owner)?;
-
     let transfer_tokens = transfer_msg(
         ido_owner,
         remaining_tokens,
