@@ -1,14 +1,14 @@
 use crate::{
     msg::{
-        HandleAnswer, HandleMsg, InitMsg, QueryMsg, ResponseStatus, TierContractQuery, TierReponse,
-        TierTokenQuery,
+        HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg, ResponseStatus, TierContractQuery,
+        TierReponse, TierTokenQuery,
     },
     state::{self, Config, Ido, Purchase},
     utils::assert_ido_owner,
 };
 use cosmwasm_std::{
     to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
-    Querier, QueryResponse, QueryResult, StdError, StdResult, Storage, Uint128,
+    Querier, QueryResult, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
 use secret_toolkit_utils::Query;
@@ -553,11 +553,125 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn query<S: Storage, A: Api, Q: Querier>(
-    _deps: &Extern<S, A, Q>,
-    _msg: QueryMsg,
-) -> QueryResult {
-    Ok(QueryResponse::default())
+pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
+    let answer = match msg {
+        QueryMsg::Config {} => {
+            let config = Config::load(&deps.storage)?;
+            config.to_answer(&deps.api)?
+        }
+        QueryMsg::IdoAmount {} => {
+            let amount = Ido::len(&deps.storage)?;
+            QueryAnswer::IdoAmount { amount }
+        }
+        QueryMsg::IdoInfo { ido_id } => {
+            let ido = Ido::load(&deps.storage, ido_id)?;
+            ido.to_answer(&deps.api)?
+        }
+        QueryMsg::WhitelistAmount { ido_id } => {
+            let whitelist = if let Some(ido_id) = ido_id {
+                state::ido_whitelist(ido_id)
+            } else {
+                state::common_whitelist()
+            };
+
+            let amount = whitelist.get_len(&deps.storage)?;
+            QueryAnswer::WhitelistAmount { amount }
+        }
+        QueryMsg::Whitelist {
+            ido_id,
+            start,
+            limit,
+        } => {
+            let whitelist = if let Some(ido_id) = ido_id {
+                state::ido_whitelist(ido_id)
+            } else {
+                state::common_whitelist()
+            };
+
+            let canonical_addresses = whitelist.paging_keys(&deps.storage, start, limit)?;
+            let mut addresses = Vec::with_capacity(canonical_addresses.len());
+            for canonical_address in canonical_addresses {
+                let address = deps.api.human_address(&canonical_address)?;
+                addresses.push(address);
+            }
+
+            QueryAnswer::Whitelist { addresses }
+        }
+        QueryMsg::IdoAmountOwnedBy { address } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let ido_list = state::ido_list_owned_by(&canonical_address);
+            let amount = ido_list.get_len(&deps.storage)?;
+
+            QueryAnswer::IdoAmountOwnedBy { amount }
+        }
+        QueryMsg::IdoListOwnedBy {
+            address,
+            start,
+            limit,
+        } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let ido_list = state::ido_list_owned_by(&canonical_address);
+            let ido_ids = ido_list.paging(&deps.storage, start, limit)?;
+
+            QueryAnswer::IdoListOwnedBy { ido_ids }
+        }
+        QueryMsg::PurchasesAmount { ido_id, address } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let purchases = state::purchases(&canonical_address, ido_id);
+            let amount = purchases.get_len(&deps.storage)?;
+
+            QueryAnswer::PurchasesAmount { amount }
+        }
+        QueryMsg::Purchases {
+            ido_id,
+            address,
+            start,
+            limit,
+        } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let purchases = state::purchases(&canonical_address, ido_id);
+            let raw_purchases = purchases.paging(&deps.storage, start, limit)?;
+            let purchases = raw_purchases.into_iter().map(|p| p.to_answer()).collect();
+
+            QueryAnswer::Purchases { purchases }
+        }
+        QueryMsg::ArchivedPurchasesAmount { ido_id, address } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let purchases = state::archived_purchases(&canonical_address, ido_id);
+            let amount = purchases.get_len(&deps.storage)?;
+
+            QueryAnswer::ArchivedPurchasesAmount { amount }
+        }
+        QueryMsg::ArchivedPurchases {
+            ido_id,
+            address,
+            start,
+            limit,
+        } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let purchases = state::archived_purchases(&canonical_address, ido_id);
+            let raw_purchases = purchases.paging(&deps.storage, start, limit)?;
+            let purchases = raw_purchases.into_iter().map(|p| p.to_answer()).collect();
+
+            QueryAnswer::ArchivedPurchases { purchases }
+        }
+        QueryMsg::UserInfo { address, ido_id } => {
+            let canonical_address = deps.api.canonical_address(&address)?;
+            let user_info = if let Some(ido_id) = ido_id {
+                let all_user_infos_in_ido = state::user_info_in_ido(&canonical_address);
+                all_user_infos_in_ido.get(&deps.storage, &ido_id)
+            } else {
+                let all_user_infos = state::user_info();
+                all_user_infos.get(&deps.storage, &canonical_address)
+            }
+            .unwrap_or_default();
+
+            user_info.to_answer()
+        }
+    };
+
+    let binary_answer = to_binary(&answer)?;
+    Ok(binary_answer)
 }
 
 #[cfg(test)]

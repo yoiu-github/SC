@@ -1,11 +1,14 @@
-use cosmwasm_std::{CanonicalAddr, ReadonlyStorage, StdResult, Storage};
+use cosmwasm_std::{Api, CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
+
+use crate::msg::{PurchaseAnswer, QueryAnswer};
 
 static CONFIG_KEY: Item<Config> = Item::new(b"config");
 static PURCHASES: DequeStore<Purchase> = DequeStore::new(b"purchases");
 static ARCHIVED_PURCHASES: AppendStore<Purchase> = AppendStore::new(b"archive");
 static ACTIVE_IDOS: Keymap<u32, bool> = Keymap::new(b"active_idos");
+static IDO_TO_INFO: Keymap<u32, UserInfo> = Keymap::new(b"ido2info");
 static OWNER_TO_IDOS: AppendStore<u32> = AppendStore::new(b"owner2idos");
 
 pub fn common_whitelist() -> Keymap<'static, CanonicalAddr, bool> {
@@ -22,12 +25,11 @@ pub fn active_ido_list(user: &CanonicalAddr) -> Keymap<u32, bool> {
 }
 
 pub fn user_info() -> Keymap<'static, CanonicalAddr, UserInfo> {
-    Keymap::new(b"addr2info")
+    Keymap::new(b"usr2info")
 }
 
-pub fn user_info_in_ido(ido_id: u32) -> Keymap<'static, CanonicalAddr, UserInfo> {
-    let user_info = user_info();
-    user_info.add_suffix(&ido_id.to_le_bytes())
+pub fn user_info_in_ido(user: &CanonicalAddr) -> Keymap<'static, u32, UserInfo> {
+    IDO_TO_INFO.add_suffix(user.as_slice())
 }
 
 pub fn purchases(user: &CanonicalAddr, ido_id: u32) -> DequeStore<Purchase> {
@@ -67,6 +69,26 @@ impl Config {
     pub fn save<S: Storage>(&self, storage: &mut S) -> StdResult<()> {
         CONFIG_KEY.save(storage, self)
     }
+
+    pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
+        let owner = api.human_address(&self.owner)?;
+        let tier_contract = api.human_address(&self.tier_contract)?;
+        let nft_contract = api.human_address(&self.nft_contract)?;
+        let token_contract = api.human_address(&self.token_contract)?;
+        let max_payments = self.max_payments.into_iter().map(Uint128).collect();
+
+        Ok(QueryAnswer::Config {
+            owner,
+            tier_contract,
+            tier_contract_hash: self.tier_contract_hash,
+            nft_contract,
+            nft_contract_hash: self.nft_contract_hash,
+            token_contract,
+            token_contract_hash: self.token_contract_hash,
+            max_payments,
+            lock_periods: self.lock_periods,
+        })
+    }
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,11 +98,31 @@ pub struct Purchase {
     pub unlock_time: u64,
 }
 
+impl Purchase {
+    pub fn to_answer(&self) -> PurchaseAnswer {
+        PurchaseAnswer {
+            tokens_amount: Uint128(self.tokens_amount),
+            timestamp: self.timestamp,
+            unlock_time: self.unlock_time,
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserInfo {
     pub total_payment: u128,
     pub total_tokens_bought: u128,
     pub total_tokens_received: u128,
+}
+
+impl UserInfo {
+    pub fn to_answer(&self) -> QueryAnswer {
+        QueryAnswer::UserInfo {
+            total_payment: Uint128(self.total_payment),
+            total_tokens_bought: Uint128(self.total_tokens_bought),
+            total_tokens_received: Uint128(self.total_tokens_received),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -145,6 +187,25 @@ impl Ido {
         self.total_tokens_amount
             .checked_sub(self.sold_amount)
             .unwrap()
+    }
+
+    pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
+        let owner = api.human_address(&self.owner)?;
+        let token_contract = api.human_address(&self.token_contract)?;
+
+        Ok(QueryAnswer::IdoInfo {
+            owner,
+            start_time: self.start_time,
+            end_time: self.end_time,
+            token_contract,
+            token_contract_hash: self.token_contract_hash,
+            price: Uint128(self.price),
+            participants: self.participants,
+            sold_amount: Uint128(self.sold_amount),
+            total_tokens_amount: Uint128(self.total_tokens_amount),
+            total_payment: Uint128(self.total_payment),
+            withdrawn: self.withdrawn,
+        })
     }
 }
 

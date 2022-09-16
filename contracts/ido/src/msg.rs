@@ -161,17 +161,21 @@ pub enum QueryMsg {
         limit: u32,
     },
     PurchasesAmount {
+        ido_id: u32,
         address: HumanAddr,
     },
     Purchases {
+        ido_id: u32,
         address: HumanAddr,
         start: u32,
         limit: u32,
     },
     ArchivedPurchasesAmount {
+        ido_id: u32,
         address: HumanAddr,
     },
     ArchivedPurchases {
+        ido_id: u32,
         address: HumanAddr,
         start: u32,
         limit: u32,
