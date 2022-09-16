@@ -127,7 +127,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     }
 
     let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
-    let startup_ido_list = state::startup_ido_list(&canonical_sender);
+    let startup_ido_list = state::ido_list_owned_by(&canonical_sender);
     startup_ido_list.push(&mut deps.storage, &ido_id)?;
 
     let token_address = deps.api.human_address(&ido.token_contract)?;
@@ -205,6 +205,10 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("IDO is not active"));
     }
 
+    if amount == 0 {
+        return Err(StdError::generic_err("Zero amount"));
+    }
+
     if remaining_amount == 0 {
         return Err(StdError::generic_err("All tokens are sold"));
     }
@@ -212,8 +216,8 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let sender = env.message.sender;
     let canonical_sender = deps.api.canonical_address(&sender)?;
 
-    let investor_info = state::investor_ido_info(&canonical_sender);
-    let mut investor_ido_info = investor_info
+    let all_user_infos_in_ido = state::user_info_in_ido(&canonical_sender);
+    let mut user_ido_info = all_user_infos_in_ido
         .get(&deps.storage, &ido_id)
         .unwrap_or_default();
 
@@ -221,7 +225,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let tier = get_tier(deps, sender.clone(), ido_id, token_id)?;
     let max_tier_payment = config.max_payments[tier as usize];
 
-    let current_payment = investor_ido_info.total_payment;
+    let current_payment = user_ido_info.total_payment;
     let available_payment = max_tier_payment.checked_sub(current_payment).unwrap();
     let max_tokens_amount = available_payment.checked_div(ido.price).unwrap();
     let can_buy_tokens = min(max_tokens_amount, remaining_amount);
@@ -248,20 +252,28 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         unlock_time,
     };
 
-    let investor_purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
-    investor_purchases.push_back(&mut deps.storage, &purchase)?;
+    let purchases = state::purchases(&canonical_sender, ido_id);
+    purchases.push_back(&mut deps.storage, &purchase)?;
 
-    investor_ido_info.total_payment = investor_ido_info
-        .total_payment
-        .checked_add(payment)
-        .unwrap();
-
-    investor_ido_info.total_tokens_bought = investor_ido_info
+    user_ido_info.total_payment = user_ido_info.total_payment.checked_add(payment).unwrap();
+    user_ido_info.total_tokens_bought = user_ido_info
         .total_tokens_bought
         .checked_add(amount)
         .unwrap();
 
-    investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
+    let all_user_infos = state::user_info();
+    let mut user_info = all_user_infos
+        .get(&deps.storage, &canonical_sender)
+        .unwrap_or_default();
+
+    user_info.total_payment = user_info.total_payment.checked_add(payment).unwrap();
+    user_info.total_tokens_bought = user_info.total_tokens_bought.checked_add(amount).unwrap();
+
+    all_user_infos.insert(&mut deps.storage, &canonical_sender, &user_info)?;
+    all_user_infos_in_ido.insert(&mut deps.storage, &ido_id, &user_ido_info)?;
+
+    let active_ido_list = state::active_ido_list(&canonical_sender);
+    active_ido_list.insert(&mut deps.storage, &ido_id, &true)?;
 
     ido.sold_amount = ido.sold_amount.checked_add(amount).unwrap();
     ido.total_payment = ido.total_payment.checked_add(payment).unwrap();
@@ -309,14 +321,9 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
     let current_time = env.block.time;
 
-    let investor_info = state::investor_ido_info(&canonical_sender);
-    let mut investor_ido_info = investor_info
-        .get(&deps.storage, &ido_id)
-        .unwrap_or_default();
-
     let start = start.unwrap_or(0);
     let limit = limit.unwrap_or(300);
-    let purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
+    let purchases = state::purchases(&canonical_sender, ido_id);
     let purchases_iter = purchases
         .iter(&deps.storage)?
         .skip(start as usize)
@@ -335,8 +342,6 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     if let Some(purhcase_indices) = purchase_indices {
         let end = start.checked_add(limit).unwrap();
         for index in purhcase_indices {
-            println!("index {}", index);
-
             if index >= start && index < end {
                 continue;
             }
@@ -352,12 +357,14 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     indices.dedup();
 
     let mut recv_amount: u128 = 0;
+    let archived_purchases = state::archived_purchases(&canonical_sender, ido_id);
+
     for (shift, index) in indices.into_iter().enumerate() {
         let position = index.checked_sub(shift).unwrap();
-        let purchase = purchases.get_at(&deps.storage, position as u32)?;
+        let purchase = purchases.remove(&mut deps.storage, position as u32)?;
 
         recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
-        purchases.remove(&mut deps.storage, position as u32)?;
+        archived_purchases.push(&mut deps.storage, &purchase)?;
     }
 
     let answer = to_binary(&HandleAnswer::RecvTokens {
@@ -372,12 +379,32 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         });
     }
 
-    investor_ido_info.total_tokens_received = investor_ido_info
+    let all_user_infos = state::user_info();
+    let all_user_infos_in_ido = state::user_info_in_ido(&canonical_sender);
+
+    let mut user_info = all_user_infos
+        .get(&deps.storage, &canonical_sender)
+        .unwrap();
+
+    let mut user_ido_info = all_user_infos_in_ido.get(&deps.storage, &ido_id).unwrap();
+
+    user_info.total_tokens_received = user_info
         .total_tokens_received
         .checked_add(recv_amount)
         .unwrap();
 
-    investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
+    user_ido_info.total_tokens_received = user_ido_info
+        .total_tokens_received
+        .checked_add(recv_amount)
+        .unwrap();
+
+    all_user_infos.insert(&mut deps.storage, &canonical_sender, &user_info)?;
+    all_user_infos_in_ido.insert(&mut deps.storage, &ido_id, &user_ido_info)?;
+
+    if user_ido_info.total_tokens_bought == user_ido_info.total_tokens_received {
+        let active_ido_list = state::active_ido_list(&canonical_sender);
+        active_ido_list.remove(&mut deps.storage, &ido_id)?;
+    }
 
     let ido = Ido::load(&deps.storage, ido_id)?;
     let token_contract = deps.api.human_address(&ido.token_contract)?;
@@ -535,7 +562,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
 
 #[cfg(test)]
 mod test {
-    use crate::state::InvestorIdoInfo;
+    use crate::state::UserInfo;
 
     use super::*;
     use cosmwasm_std::{
@@ -689,7 +716,7 @@ mod test {
         let env = mock_env(&ido_owner, &[]);
         let msg = start_ido_msg();
 
-        let startup_ido_list = state::startup_ido_list(&canonical_ido_owner);
+        let startup_ido_list = state::ido_list_owned_by(&canonical_ido_owner);
         assert_eq!(startup_ido_list.get_len(&deps.storage), Ok(0));
         assert_eq!(Ido::len(&deps.storage), Ok(0));
 
@@ -707,7 +734,7 @@ mod test {
         assert_eq!(Ido::len(&deps.storage), Ok(1));
         let ido = Ido::load(&deps.storage, 0).unwrap();
 
-        let startup_ido_list = state::startup_ido_list(&canonical_ido_owner);
+        let startup_ido_list = state::ido_list_owned_by(&canonical_ido_owner);
         assert_eq!(startup_ido_list.get_len(&deps.storage), Ok(1));
 
         if let HandleMsg::StartIdo {
@@ -1008,27 +1035,47 @@ mod test {
 
         let mut ido = Ido::default();
         ido.token_contract = canonical_token_contract;
-        ido.save(&mut deps.storage).unwrap();
+        let ido_id = ido.save(&mut deps.storage).unwrap();
 
-        let investor = HumanAddr::from("investor");
-        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
-        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
+        let user = HumanAddr::from("user");
+        let canonical_user = deps.api.canonical_address(&user).unwrap();
+        let user_purchases = state::purchases(&canonical_user, ido_id);
         for purchase in purchases.iter() {
-            investor_purchases
+            user_purchases
                 .push_back(&mut deps.storage, purchase)
                 .unwrap();
         }
 
         let total_tokens_amount = purchases.iter().map(|p| p.tokens_amount).sum();
-        let investor_info = state::investor_ido_info(&canonical_investor);
 
-        let info = InvestorIdoInfo {
+        let info = UserInfo {
+            total_payment: 0,
+            total_tokens_bought: total_tokens_amount + 100,
+            total_tokens_received: 100,
+        };
+
+        let ido_info = UserInfo {
             total_payment: 0,
             total_tokens_bought: total_tokens_amount,
             total_tokens_received: 0,
         };
 
-        investor_info.insert(&mut deps.storage, &0, &info).unwrap();
+        let user_info = state::user_info();
+        let user_ido_info = state::user_info_in_ido(&canonical_user);
+
+        user_info
+            .insert(&mut deps.storage, &canonical_user, &info)
+            .unwrap();
+
+        user_ido_info
+            .insert(&mut deps.storage, &ido_id, &ido_info)
+            .unwrap();
+
+        let active_ido_list = state::active_ido_list(&canonical_user);
+        active_ido_list
+            .insert(&mut deps.storage, &ido_id, &true)
+            .unwrap();
+
         deps
     }
 
@@ -1038,14 +1085,14 @@ mod test {
         let purchases = generate_purchases(amount);
         let mut deps = prepare_for_receive_tokens(&purchases);
 
-        let investor = HumanAddr::from("investor");
-        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
+        let user = HumanAddr::from("user");
+        let canonical_user = deps.api.canonical_address(&user).unwrap();
 
-        let investor_info = state::investor_ido_info(&canonical_investor);
-        let info = investor_info.get(&deps.storage, &0).unwrap();
+        let user_info = state::user_info_in_ido(&canonical_user);
+        let info = user_info.get(&deps.storage, &0).unwrap();
+
         let total_tokens_amount = info.total_tokens_bought;
-
-        let mut env = mock_env(investor.clone(), &[]);
+        let mut env = mock_env(user.clone(), &[]);
         env.block.time = 0;
 
         let recv_tokens_msg = HandleMsg::RecvTokens {
@@ -1054,6 +1101,9 @@ mod test {
             limit: Some(amount as u32),
             purchase_indices: None,
         };
+
+        let active_ido_list = state::active_ido_list(&canonical_user);
+        assert!(active_ido_list.contains(&deps.storage, &0));
 
         let response = handle(&mut deps, env.clone(), recv_tokens_msg.clone()).unwrap();
         assert!(response.messages.is_empty());
@@ -1087,7 +1137,7 @@ mod test {
         let ido = Ido::load(&deps.storage, 0).unwrap();
         let token_contract = deps.api.human_address(&ido.token_contract).unwrap();
         let expected_message = transfer_msg(
-            investor.clone(),
+            user.clone(),
             Uint128(recv_amount),
             None,
             None,
@@ -1100,16 +1150,35 @@ mod test {
         assert_eq!(response.messages.len(), 1);
         assert_eq!(response.messages[0], expected_message);
 
-        let investor_info = state::investor_ido_info(&canonical_investor);
-        let info = investor_info.get(&deps.storage, &0).unwrap();
+        let user_info = state::user_info_in_ido(&canonical_user);
+        let info = user_info.get(&deps.storage, &0).unwrap();
+
         assert_eq!(info.total_tokens_bought, total_tokens_amount);
         assert_eq!(info.total_tokens_received, recv_amount);
 
-        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
-        let investor_purchases_iter = investor_purchases.iter(&deps.storage).unwrap();
-        for purchase in investor_purchases_iter {
+        let active_ido_list = state::active_ido_list(&canonical_user);
+        assert!(active_ido_list.contains(&deps.storage, &0));
+
+        let user_purchases = state::purchases(&canonical_user, 0);
+        let user_purchases_len = user_purchases.get_len(&deps.storage).unwrap();
+        let user_purchases_iter = user_purchases.iter(&deps.storage).unwrap();
+
+        for purchase in user_purchases_iter {
             assert!(time < purchase.unwrap().unlock_time);
         }
+
+        let archived_purchases = state::archived_purchases(&canonical_user, 0);
+        let archived_purchases_len = archived_purchases.get_len(&deps.storage).unwrap();
+        let archived_purchases_iter = archived_purchases.iter(&deps.storage).unwrap();
+
+        for purchase in archived_purchases_iter {
+            assert!(time >= purchase.unwrap().unlock_time);
+        }
+
+        assert_eq!(
+            user_purchases_len + archived_purchases_len,
+            purchases.len() as u32
+        );
 
         env.block.time = 1000;
 
@@ -1125,7 +1194,7 @@ mod test {
         }
 
         let expected_message = transfer_msg(
-            investor,
+            user,
             Uint128(recv_amount),
             None,
             None,
@@ -1138,13 +1207,29 @@ mod test {
         assert_eq!(response.messages.len(), 1);
         assert_eq!(response.messages[0], expected_message);
 
-        let investor_info = state::investor_ido_info(&canonical_investor);
-        let info = investor_info.get(&deps.storage, &0).unwrap();
-        assert_eq!(info.total_tokens_bought, total_tokens_amount);
-        assert_eq!(info.total_tokens_received, total_tokens_amount);
+        let all_user_infos_in_ido = state::user_info_in_ido(&canonical_user);
+        let user_ido_info = all_user_infos_in_ido.get(&deps.storage, &0).unwrap();
 
-        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
-        assert_eq!(investor_purchases.get_len(&deps.storage), Ok(0));
+        assert_eq!(user_ido_info.total_tokens_bought, total_tokens_amount);
+        assert_eq!(user_ido_info.total_tokens_received, total_tokens_amount);
+
+        let all_user_infos = state::user_info();
+        let user_info = all_user_infos.get(&deps.storage, &canonical_user).unwrap();
+
+        // initially user had 100 bought and received tokens
+        assert_eq!(user_info.total_tokens_bought, total_tokens_amount + 100);
+        assert_eq!(user_info.total_tokens_received, total_tokens_amount + 100);
+
+        let user_purchases = state::purchases(&canonical_user, 0);
+        let archived_purchases = state::archived_purchases(&canonical_user, 0);
+        assert_eq!(user_purchases.get_len(&deps.storage), Ok(0));
+        assert_eq!(
+            archived_purchases.get_len(&deps.storage),
+            Ok(purchases.len() as u32)
+        );
+
+        let active_ido_list = state::active_ido_list(&canonical_user);
+        assert!(!active_ido_list.contains(&deps.storage, &0));
     }
 
     #[test]
@@ -1153,10 +1238,10 @@ mod test {
         let purchases = generate_purchases(amount);
         let mut deps = prepare_for_receive_tokens(&purchases);
 
-        let investor = HumanAddr::from("investor");
-        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
+        let user = HumanAddr::from("user");
+        let canonical_user = deps.api.canonical_address(&user).unwrap();
 
-        let mut env = mock_env(investor.clone(), &[]);
+        let mut env = mock_env(user.clone(), &[]);
         env.block.time = 1000;
 
         let mut purchase_indices = (0..10).into_iter().collect::<Vec<_>>();
@@ -1187,7 +1272,7 @@ mod test {
         let ido = Ido::load(&deps.storage, 0).unwrap();
         let token_contract = deps.api.human_address(&ido.token_contract).unwrap();
         let expected_message = transfer_msg(
-            investor,
+            user,
             Uint128(recv_amount),
             None,
             None,
@@ -1200,12 +1285,12 @@ mod test {
         assert_eq!(response.messages.len(), 1);
         assert_eq!(response.messages[0], expected_message);
 
-        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
-        assert_eq!(investor_purchases.get_len(&deps.storage), Ok(3));
+        let user_purchases = state::purchases(&canonical_user, 0);
+        assert_eq!(user_purchases.get_len(&deps.storage), Ok(3));
 
         for (i, purchase) in purchases[14..17].iter().enumerate() {
             assert_eq!(
-                investor_purchases.get_at(&deps.storage, i as u32).unwrap(),
+                user_purchases.get_at(&deps.storage, i as u32).unwrap(),
                 *purchase
             );
         }

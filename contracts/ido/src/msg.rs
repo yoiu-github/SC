@@ -35,7 +35,6 @@ impl Query for TierContractQuery {
 pub enum TierReponse {
     TierOf { tier: u8 },
 }
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
@@ -140,19 +139,113 @@ pub enum HandleAnswer {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    IdoInfo { ido_id: u32 },
+    Config {},
+    IdoAmount {},
+    IdoInfo {
+        ido_id: u32,
+    },
+    WhitelistAmount {
+        ido_id: Option<u32>,
+    },
+    Whitelist {
+        ido_id: Option<u32>,
+        start: u32,
+        limit: u32,
+    },
+    IdoAmountOwnedBy {
+        address: HumanAddr,
+    },
+    IdoListOwnedBy {
+        address: HumanAddr,
+        start: u32,
+        limit: u32,
+    },
+    PurchasesAmount {
+        address: HumanAddr,
+    },
+    Purchases {
+        address: HumanAddr,
+        start: u32,
+        limit: u32,
+    },
+    ArchivedPurchasesAmount {
+        address: HumanAddr,
+    },
+    ArchivedPurchases {
+        address: HumanAddr,
+        start: u32,
+        limit: u32,
+    },
+    UserInfo {
+        address: HumanAddr,
+        ido_id: Option<u32>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PurchaseAnswer {
+    pub tokens_amount: Uint128,
+    pub timestamp: u64,
+    pub unlock_time: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
+    Config {
+        owner: HumanAddr,
+        tier_contract: HumanAddr,
+        tier_contract_hash: String,
+        nft_contract: HumanAddr,
+        nft_contract_hash: String,
+        token_contract: HumanAddr,
+        token_contract_hash: String,
+        max_payments: Vec<Uint128>,
+        lock_periods: Vec<u64>,
+    },
+    IdoAmount {
+        amount: u32,
+    },
     IdoInfo {
-        ido_id: u32,
+        owner: HumanAddr,
         start_time: u64,
         end_time: u64,
-        token: HumanAddr,
+        token_contract: HumanAddr,
+        token_contract_hash: String,
         price: Uint128,
-        total_amount: Uint128,
         participants: u64,
+        sold_amount: Uint128,
+        total_tokens_amount: Uint128,
+        total_payment: Uint128,
+        withdrawn: bool,
+    },
+    WhitelistAmount {
+        amount: u32,
+    },
+    Whitelist {
+        addresses: Vec<HumanAddr>,
+    },
+    IdoAmountOwnedBy {
+        amount: u32,
+    },
+    IdoListOwnedBy {
+        ido_ids: Vec<u32>,
+    },
+    PurchasesAmount {
+        amount: u32,
+    },
+    Purchases {
+        purchases: Vec<PurchaseAnswer>,
+    },
+    ArchivedPurchasesAmount {
+        amount: u32,
+    },
+    ArchivedPurchases {
+        purchases: Vec<PurchaseAnswer>,
+    },
+    UserInfo {
+        total_payment: Uint128,
+        total_tokens_bought: Uint128,
+        total_tokens_received: Uint128,
     },
 }

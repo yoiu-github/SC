@@ -3,9 +3,10 @@ use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
 
 static CONFIG_KEY: Item<Config> = Item::new(b"config");
-static INVESTOR_IDO_INFO: Keymap<u32, InvestorIdoInfo> = Keymap::new(b"inv2idoinfo");
-static INVESTOR_IDO_PURCHASES: DequeStore<Purchase> = DequeStore::new(b"inv2purchases");
-static STARTUP_IDO_LIST: AppendStore<u32> = AppendStore::new(b"startup_idos");
+static PURCHASES: DequeStore<Purchase> = DequeStore::new(b"purchases");
+static ARCHIVED_PURCHASES: AppendStore<Purchase> = AppendStore::new(b"archive");
+static ACTIVE_IDOS: Keymap<u32, bool> = Keymap::new(b"active_idos");
+static OWNER_TO_IDOS: AppendStore<u32> = AppendStore::new(b"owner2idos");
 
 pub fn common_whitelist() -> Keymap<'static, CanonicalAddr, bool> {
     Keymap::new(b"whitelist")
@@ -16,18 +17,33 @@ pub fn ido_whitelist(ido_id: u32) -> Keymap<'static, CanonicalAddr, bool> {
     whitelist.add_suffix(&ido_id.to_le_bytes())
 }
 
-pub fn investor_ido_info(investor: &CanonicalAddr) -> Keymap<'static, u32, InvestorIdoInfo> {
-    INVESTOR_IDO_INFO.add_suffix(investor.as_slice())
+pub fn active_ido_list(user: &CanonicalAddr) -> Keymap<u32, bool> {
+    ACTIVE_IDOS.add_suffix(user.as_slice())
 }
 
-pub fn investor_ido_purchases(investor: &CanonicalAddr, ido_id: u32) -> DequeStore<Purchase> {
-    INVESTOR_IDO_PURCHASES
-        .add_suffix(investor.as_slice())
+pub fn user_info() -> Keymap<'static, CanonicalAddr, UserInfo> {
+    Keymap::new(b"addr2info")
+}
+
+pub fn user_info_in_ido(ido_id: u32) -> Keymap<'static, CanonicalAddr, UserInfo> {
+    let user_info = user_info();
+    user_info.add_suffix(&ido_id.to_le_bytes())
+}
+
+pub fn purchases(user: &CanonicalAddr, ido_id: u32) -> DequeStore<Purchase> {
+    PURCHASES
+        .add_suffix(user.as_slice())
         .add_suffix(&ido_id.to_le_bytes())
 }
 
-pub fn startup_ido_list(owner: &CanonicalAddr) -> AppendStore<u32> {
-    STARTUP_IDO_LIST.add_suffix(owner.as_slice())
+pub fn archived_purchases(user: &CanonicalAddr, ido_id: u32) -> AppendStore<Purchase> {
+    ARCHIVED_PURCHASES
+        .add_suffix(user.as_slice())
+        .add_suffix(&ido_id.to_le_bytes())
+}
+
+pub fn ido_list_owned_by(owner: &CanonicalAddr) -> AppendStore<u32> {
+    OWNER_TO_IDOS.add_suffix(owner.as_slice())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -61,7 +77,7 @@ pub struct Purchase {
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct InvestorIdoInfo {
+pub struct UserInfo {
     pub total_payment: u128,
     pub total_tokens_bought: u128,
     pub total_tokens_received: u128,
