@@ -12,10 +12,7 @@ use cosmwasm_std::{
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
 use secret_toolkit_utils::Query;
-use std::{
-    cmp::{max, min},
-    collections::HashSet,
-};
+use std::cmp::{max, min};
 
 const BLOCK_SIZE: usize = 256;
 
@@ -305,9 +302,9 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     ido_id: u32,
-    start_from: Option<u32>,
+    start: Option<u32>,
     limit: Option<u32>,
-    purchase_indices: Option<HashSet<u32>>,
+    purchase_indices: Option<Vec<u32>>,
 ) -> HandleResult {
     let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
     let current_time = env.block.time;
@@ -317,7 +314,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         .get(&deps.storage, &ido_id)
         .unwrap_or_default();
 
-    let start = start_from.unwrap_or(0);
+    let start = start.unwrap_or(0);
     let limit = limit.unwrap_or(300);
     let purchases = state::investor_ido_purchases(&canonical_sender, ido_id);
     let purchases_iter = purchases
@@ -326,30 +323,41 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         .take(limit as usize);
 
     let mut indices = Vec::new();
-    let mut recv_amount: u128 = 0;
-
     for (i, purchase) in purchases_iter.enumerate() {
         let purchase = purchase?;
 
         if current_time >= purchase.unlock_time {
-            recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
-            indices.push(i);
+            let index = i.checked_add(start as usize).unwrap();
+            indices.push(index);
         }
     }
 
     if let Some(purhcase_indices) = purchase_indices {
         let end = start.checked_add(limit).unwrap();
         for index in purhcase_indices {
-            if index > start && index < end {
+            println!("index {}", index);
+
+            if index >= start && index < end {
                 continue;
             }
 
             let purchase = purchases.get_at(&deps.storage, index)?;
             if current_time >= purchase.unlock_time {
-                recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
                 indices.push(index as usize);
             }
         }
+    }
+
+    indices.sort();
+    indices.dedup();
+
+    let mut recv_amount: u128 = 0;
+    for (shift, index) in indices.into_iter().enumerate() {
+        let position = index.checked_sub(shift).unwrap();
+        let purchase = purchases.get_at(&deps.storage, position as u32)?;
+
+        recv_amount = recv_amount.checked_add(purchase.tokens_amount).unwrap();
+        purchases.remove(&mut deps.storage, position as u32)?;
     }
 
     let answer = to_binary(&HandleAnswer::RecvTokens {
@@ -370,11 +378,6 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         .unwrap();
 
     investor_info.insert(&mut deps.storage, &ido_id, &investor_ido_info)?;
-
-    for (shift, index) in indices.into_iter().enumerate() {
-        let position = index.checked_sub(shift).unwrap();
-        purchases.remove(&mut deps.storage, position as u32)?;
-    }
 
     let ido = Ido::load(&deps.storage, ido_id)?;
     let token_contract = deps.api.human_address(&ido.token_contract)?;
@@ -416,6 +419,10 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     ido.save(&mut deps.storage)?;
 
     let remaining_tokens = Uint128(ido.remaining_amount());
+    if remaining_tokens.u128() == 0 {
+        return Err(StdError::generic_err("Nothing to withdraw"));
+    }
+
     let ido_token_contract = deps.api.human_address(&ido.token_contract)?;
     let ido_owner = deps.api.human_address(&ido.owner)?;
 
@@ -1138,5 +1145,172 @@ mod test {
 
         let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
         assert_eq!(investor_purchases.get_len(&deps.storage), Ok(0));
+    }
+
+    #[test]
+    fn recv_tokens_by_indices() {
+        let amount = 20;
+        let purchases = generate_purchases(amount);
+        let mut deps = prepare_for_receive_tokens(&purchases);
+
+        let investor = HumanAddr::from("investor");
+        let canonical_investor = deps.api.canonical_address(&investor).unwrap();
+
+        let mut env = mock_env(investor.clone(), &[]);
+        env.block.time = 1000;
+
+        let mut purchase_indices = (0..10).into_iter().collect::<Vec<_>>();
+        purchase_indices.extend(&[17, 18, 19]);
+
+        let recv_tokens_msg = HandleMsg::RecvTokens {
+            ido_id: 0,
+            start: Some(4),
+            limit: Some(10),
+            purchase_indices: Some(purchase_indices),
+        };
+
+        let recv_amount = purchases[0..14]
+            .iter()
+            .chain(purchases[17..].iter())
+            .map(|p| p.tokens_amount)
+            .sum();
+
+        let response = handle(&mut deps, env, recv_tokens_msg).unwrap();
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::RecvTokens { amount, status } => {
+                assert_eq!(amount, Uint128(recv_amount));
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let ido = Ido::load(&deps.storage, 0).unwrap();
+        let token_contract = deps.api.human_address(&ido.token_contract).unwrap();
+        let expected_message = transfer_msg(
+            investor,
+            Uint128(recv_amount),
+            None,
+            None,
+            BLOCK_SIZE,
+            ido.token_contract_hash,
+            token_contract,
+        )
+        .unwrap();
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0], expected_message);
+
+        let investor_purchases = state::investor_ido_purchases(&canonical_investor, 0);
+        assert_eq!(investor_purchases.get_len(&deps.storage), Ok(3));
+
+        for (i, purchase) in purchases[14..17].iter().enumerate() {
+            assert_eq!(
+                investor_purchases.get_at(&deps.storage, i as u32).unwrap(),
+                *purchase
+            );
+        }
+    }
+
+    #[test]
+    fn withdraw() {
+        let msg = get_init_msg();
+        let mut deps = initialize_with(msg).unwrap();
+
+        let unauthorized_user = HumanAddr::from("unauthorized");
+        let owner = HumanAddr::from("owner");
+        let ido_owner = HumanAddr::from("ido_owner");
+        let canonical_ido_owner = deps.api.canonical_address(&ido_owner).unwrap();
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let mut ido = Ido::default();
+        ido.start_time = 100;
+        ido.end_time = 1000;
+        ido.owner = canonical_ido_owner;
+        ido.total_tokens_amount = 100;
+        ido.sold_amount = 30;
+        ido.token_contract = canonical_token_contract;
+
+        let withdraw_amount = ido.total_tokens_amount - ido.sold_amount;
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+        let withdraw_msg = HandleMsg::Withdraw { ido_id };
+
+        let env = mock_env(unauthorized_user, &[]);
+        let response = handle(&mut deps, env, withdraw_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(owner, &[]);
+        let response = handle(&mut deps, env, withdraw_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let mut env = mock_env(ido_owner.clone(), &[]);
+
+        env.block.time = 0;
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("IDO is not finished yet"));
+
+        env.block.time = 500;
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("IDO is not finished yet"));
+
+        env.block.time = 1000;
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone()).unwrap();
+        match from_binary(&response.data.unwrap()).unwrap() {
+            HandleAnswer::Withdraw { amount, status } => {
+                assert_eq!(amount, Uint128(withdraw_amount));
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let expected_message = transfer_msg(
+            ido_owner,
+            Uint128(withdraw_amount),
+            None,
+            None,
+            BLOCK_SIZE,
+            ido.token_contract_hash,
+            token_contract,
+        )
+        .unwrap();
+
+        assert_eq!(response.messages.len(), 1);
+        assert_eq!(response.messages[0], expected_message);
+
+        let response = handle(&mut deps, env, withdraw_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Already withdrawn"));
+    }
+
+    #[test]
+    fn withdraw_zero_tokens() {
+        let msg = get_init_msg();
+        let mut deps = initialize_with(msg).unwrap();
+
+        let ido_owner = HumanAddr::from("ido_owner");
+        let canonical_ido_owner = deps.api.canonical_address(&ido_owner).unwrap();
+
+        let mut ido = Ido::default();
+        ido.start_time = 100;
+        ido.end_time = 1000;
+        ido.owner = canonical_ido_owner;
+        ido.total_tokens_amount = 100;
+        ido.sold_amount = 100;
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+        let withdraw_msg = HandleMsg::Withdraw { ido_id };
+
+        let mut env = mock_env(ido_owner, &[]);
+        env.block.time = 1000;
+
+        let response = handle(&mut deps, env, withdraw_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Nothing to withdraw"));
     }
 }

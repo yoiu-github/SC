@@ -2,7 +2,6 @@ use cosmwasm_std::{HumanAddr, StdError, StdResult, Uint128};
 use schemars::JsonSchema;
 use secret_toolkit_utils::Query;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -101,7 +100,7 @@ pub enum HandleMsg {
         ido_id: u32,
         start: Option<u32>,
         limit: Option<u32>,
-        purchase_indices: Option<HashSet<u32>>,
+        purchase_indices: Option<Vec<u32>>,
     },
     Withdraw {
         ido_id: u32,
