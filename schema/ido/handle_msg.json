@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HandleMsg",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "start_ido"
+      ],
+      "properties": {
+        "start_ido": {
+          "type": "object",
+          "required": [
+            "end_time",
+            "price",
+            "start_time",
+            "token_contract",
+            "token_contract_hash",
+            "total_amount"
+          ],
+          "properties": {
+            "end_time": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "price": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "start_time": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "token_contract": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "token_contract_hash": {
+              "type": "string"
+            },
+            "total_amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "whitelist": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/definitions/HumanAddr"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "whitelist_add"
+      ],
+      "properties": {
+        "whitelist_add": {
+          "type": "object",
+          "required": [
+            "addresses"
+          ],
+          "properties": {
+            "addresses": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/HumanAddr"
+              }
+            },
+            "ido_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "whitelist_remove"
+      ],
+      "properties": {
+        "whitelist_remove": {
+          "type": "object",
+          "required": [
+            "addresses"
+          ],
+          "properties": {
+            "addresses": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/HumanAddr"
+              }
+            },
+            "ido_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "buy_tokens"
+      ],
+      "properties": {
+        "buy_tokens": {
+          "type": "object",
+          "required": [
+            "amount",
+            "ido_id"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "ido_id": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "token_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "recv_tokens"
+      ],
+      "properties": {
+        "recv_tokens": {
+          "type": "object",
+          "required": [
+            "ido_id"
+          ],
+          "properties": {
+            "ido_id": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "purchase_indices": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            },
+            "start": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "withdraw"
+      ],
+      "properties": {
+        "withdraw": {
+          "type": "object",
+          "required": [
+            "ido_id"
+          ],
+          "properties": {
+            "ido_id": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}

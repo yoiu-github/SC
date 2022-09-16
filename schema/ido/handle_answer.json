@@ -1,0 +1,168 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HandleAnswer",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "start_ido"
+      ],
+      "properties": {
+        "start_ido": {
+          "type": "object",
+          "required": [
+            "ido_id",
+            "status",
+            "whitelist_size"
+          ],
+          "properties": {
+            "ido_id": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            },
+            "whitelist_size": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "whitelist_add"
+      ],
+      "properties": {
+        "whitelist_add": {
+          "type": "object",
+          "required": [
+            "status",
+            "whitelist_size"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            },
+            "whitelist_size": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "whitelist_remove"
+      ],
+      "properties": {
+        "whitelist_remove": {
+          "type": "object",
+          "required": [
+            "status",
+            "whitelist_size"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            },
+            "whitelist_size": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "buy_tokens"
+      ],
+      "properties": {
+        "buy_tokens": {
+          "type": "object",
+          "required": [
+            "amount",
+            "status"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "recv_tokens"
+      ],
+      "properties": {
+        "recv_tokens": {
+          "type": "object",
+          "required": [
+            "amount",
+            "status"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "withdraw"
+      ],
+      "properties": {
+        "withdraw": {
+          "type": "object",
+          "required": [
+            "amount",
+            "status"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "ResponseStatus": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failure"
+      ]
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}
