@@ -140,6 +140,10 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
+    if env.block.time >= ido.end_time {
+        return Err(StdError::generic_err("Ido ends in the past"));
+    }
+
     let ido_id = ido.save(&mut deps.storage)?;
     let ido_whitelist = state::ido_whitelist(ido_id);
 
