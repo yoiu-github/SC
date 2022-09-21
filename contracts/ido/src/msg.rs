@@ -82,28 +82,34 @@ pub enum HandleMsg {
         total_amount: Uint128,
         tokens_per_tier: Option<Vec<Uint128>>,
         whitelist: Option<Vec<HumanAddr>>,
+        padding: Option<String>,
     },
     WhitelistAdd {
         addresses: Vec<HumanAddr>,
         ido_id: Option<u32>,
+        padding: Option<String>,
     },
     WhitelistRemove {
         addresses: Vec<HumanAddr>,
         ido_id: Option<u32>,
+        padding: Option<String>,
     },
     BuyTokens {
         ido_id: u32,
         amount: Uint128,
         token_id: Option<String>,
+        padding: Option<String>,
     },
     RecvTokens {
         ido_id: u32,
         start: Option<u32>,
         limit: Option<u32>,
         purchase_indices: Option<Vec<u32>>,
+        padding: Option<String>,
     },
     Withdraw {
         ido_id: u32,
+        padding: Option<String>,
     },
 }
 

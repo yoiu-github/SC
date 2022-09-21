@@ -10,7 +10,7 @@ use cosmwasm_std::{
     Querier, QueryResult, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
-use secret_toolkit_utils::Query;
+use secret_toolkit_utils::{pad_handle_result, pad_query_result, Query};
 use std::cmp::{max, min};
 
 const BLOCK_SIZE: usize = 256;
@@ -57,7 +57,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
-    match msg {
+    let response = match msg {
         HandleMsg::StartIdo {
             start_time,
             end_time,
@@ -67,6 +67,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             total_amount,
             tokens_per_tier,
             whitelist,
+            ..
         } => {
             let mut ido = Ido::default();
             let owner = deps.api.canonical_address(&env.message.sender)?;
@@ -91,21 +92,25 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             ido_id,
             token_id,
+            ..
         } => buy_tokens(deps, env, ido_id, amount.u128(), token_id),
-        HandleMsg::WhitelistAdd { addresses, ido_id } => {
-            whitelist_add(deps, env, addresses, ido_id)
-        }
-        HandleMsg::WhitelistRemove { addresses, ido_id } => {
-            whitelist_remove(deps, env, addresses, ido_id)
-        }
+        HandleMsg::WhitelistAdd {
+            addresses, ido_id, ..
+        } => whitelist_add(deps, env, addresses, ido_id),
+        HandleMsg::WhitelistRemove {
+            addresses, ido_id, ..
+        } => whitelist_remove(deps, env, addresses, ido_id),
         HandleMsg::RecvTokens {
             ido_id,
             start,
             limit,
             purchase_indices,
+            ..
         } => recv_tokens(deps, env, ido_id, start, limit, purchase_indices),
-        HandleMsg::Withdraw { ido_id } => withdraw(deps, env, ido_id),
-    }
+        HandleMsg::Withdraw { ido_id, .. } => withdraw(deps, env, ido_id),
+    };
+
+    pad_handle_result(response, BLOCK_SIZE)
 }
 
 fn start_ido<S: Storage, A: Api, Q: Querier>(
@@ -584,7 +589,12 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
-    let answer = match msg {
+    let response = do_query(deps, msg);
+    pad_query_result(response, BLOCK_SIZE)
+}
+
+fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
+    let response = match msg {
         QueryMsg::Config {} => {
             let config = Config::load(&deps.storage)?;
             config.to_answer(&deps.api)?
@@ -700,8 +710,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         }
     };
 
-    let binary_answer = to_binary(&answer)?;
-    Ok(binary_answer)
+    to_binary(&response)
 }
 
 #[cfg(test)]
@@ -782,6 +791,7 @@ mod test {
             total_amount: Uint128(total_amount),
             whitelist: Some(whitelist),
             tokens_per_tier: Some(tokens_per_tier),
+            padding: None,
         }
     }
 
@@ -985,6 +995,7 @@ mod test {
         let add_whitelist_msg = HandleMsg::WhitelistAdd {
             addresses: vec![address.clone()],
             ido_id: None,
+            padding: None,
         };
 
         let unauthorized_user = HumanAddr::from("unauthorized");
@@ -1015,6 +1026,7 @@ mod test {
         let add_ido_whitelist_msg = HandleMsg::WhitelistAdd {
             addresses: vec![address, new_address],
             ido_id: Some(0),
+            padding: None,
         };
 
         let response = handle(&mut deps, env.clone(), add_ido_whitelist_msg.clone());
@@ -1107,6 +1119,7 @@ mod test {
         let remove_whitelist_msg = HandleMsg::WhitelistRemove {
             addresses: whitelist_addresses[10..20].to_vec(),
             ido_id: None,
+            padding: None,
         };
 
         let unauthorized_user = HumanAddr::from("unauthorized");
@@ -1146,6 +1159,7 @@ mod test {
         let remove_whitelist_msg = HandleMsg::WhitelistRemove {
             addresses: whitelist_ido_addresses[10..].to_vec(),
             ido_id: Some(0),
+            padding: None,
         };
 
         let env = mock_env(unauthorized_user, &[]);
@@ -1289,6 +1303,7 @@ mod test {
             start: None,
             limit: Some(amount as u32),
             purchase_indices: None,
+            padding: None,
         };
 
         let active_ido_list = state::active_ido_list(&canonical_user);
@@ -1441,6 +1456,7 @@ mod test {
             start: Some(4),
             limit: Some(10),
             purchase_indices: Some(purchase_indices),
+            padding: None,
         };
 
         let recv_amount = purchases[0..14]
@@ -1509,7 +1525,10 @@ mod test {
         let withdraw_amount = ido.total_tokens_amount - ido.sold_amount;
 
         let ido_id = ido.save(&mut deps.storage).unwrap();
-        let withdraw_msg = HandleMsg::Withdraw { ido_id };
+        let withdraw_msg = HandleMsg::Withdraw {
+            ido_id,
+            padding: None,
+        };
 
         let env = mock_env(unauthorized_user, &[]);
         let response = handle(&mut deps, env, withdraw_msg.clone());
@@ -1578,7 +1597,10 @@ mod test {
         ido.sold_amount = 100;
 
         let ido_id = ido.save(&mut deps.storage).unwrap();
-        let withdraw_msg = HandleMsg::Withdraw { ido_id };
+        let withdraw_msg = HandleMsg::Withdraw {
+            ido_id,
+            padding: None,
+        };
 
         let mut env = mock_env(ido_owner, &[]);
         env.block.time = 1000;
