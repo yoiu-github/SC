@@ -137,6 +137,7 @@ pub struct Ido {
     pub price: u128,
     pub participants: u64,
     pub sold_amount: u128,
+    pub remaining_tokens_per_tier: Option<Vec<u128>>,
     pub total_tokens_amount: u128,
     pub total_payment: u128,
     pub withdrawn: bool,
@@ -181,6 +182,14 @@ impl Ido {
 
     pub fn is_active(&self, current_time: u64) -> bool {
         current_time >= self.start_time && current_time < self.end_time
+    }
+
+    pub fn remaining_tokens_per_tier(&self, tier: u8) -> u128 {
+        if let Some(ref tokens_per_tier) = self.remaining_tokens_per_tier {
+            tokens_per_tier[tier as usize]
+        } else {
+            self.remaining_amount()
+        }
     }
 
     pub fn remaining_amount(&self) -> u128 {

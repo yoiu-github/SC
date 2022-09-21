@@ -80,6 +80,7 @@ pub enum HandleMsg {
         token_contract_hash: String,
         price: Uint128,
         total_amount: Uint128,
+        tokens_per_tier: Option<Vec<Uint128>>,
         whitelist: Option<Vec<HumanAddr>>,
     },
     WhitelistAdd {
