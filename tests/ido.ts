@@ -4,17 +4,12 @@ import {
   broadcastWithCheck,
   ContractDeployInfo,
   currentTime,
-  deployIdo,
-  deploySnip20,
-  deployTier,
   getAdmin,
   getExecuteMsg,
-  IdoExecuteMsg,
-  IdoInitMsg,
+  Ido,
   newClient,
-  Snip20ExecuteMsg,
-  Snip20InitMsg,
-  TierInitMsg,
+  Snip20,
+  Tier,
 } from "./utils";
 
 describe("Deploy", () => {
@@ -22,6 +17,7 @@ describe("Deploy", () => {
   let tierContractInfo: ContractDeployInfo;
   let sscrtContractInfo: ContractDeployInfo;
   let idoContractInfo: ContractDeployInfo;
+  let ido_id: number;
 
   it("Initialize client", async () => {
     admin = await getAdmin();
@@ -29,33 +25,22 @@ describe("Deploy", () => {
   });
 
   it("Deploy Tier contract", async () => {
-    const initMsg: TierInitMsg = {
-      validator: "",
+    const validators = await admin.query.staking.validators({});
+    const validator = validators.validators[0].operatorAddress;
+
+    const initMsg: Tier.InitMsg = {
+      validator,
       deposits: ["100", "200", "500", "1000"],
       lock_periods: [10, 20, 30, 40],
     };
 
-    tierContractInfo = await deployTier(admin, initMsg);
-  });
-
-  it("Deploy SSCRT contract", async () => {
-    const initMsg: Snip20InitMsg = {
-      name: "Tier token",
-      symbol: "TTOKEN",
-      decimals: 6,
-      prng_seed: "seed",
-    };
-
-    sscrtContractInfo = await deploySnip20(
-      admin,
-      "sscrt",
-      initMsg,
-      "./build/sscrt.wasm",
-    );
+    tierContractInfo = await Tier.deploy(admin, initMsg);
   });
 
   it("Deploy IDO contract", async () => {
-    const initMsg: IdoInitMsg = {
+    sscrtContractInfo = await Snip20.deploySscrt(admin);
+
+    const initMsg: Ido.InitMsg = {
       max_payments: ["10", "20", "30", "40"],
       lock_periods: [10, 20, 30, 40],
       tier_contract: tierContractInfo.address,
@@ -66,36 +51,36 @@ describe("Deploy", () => {
       token_contract_hash: sscrtContractInfo.codeHash,
     };
 
-    idoContractInfo = await deployIdo(admin, initMsg);
+    idoContractInfo = await Ido.deploy(admin, initMsg);
   });
 
   it("Start IDO", async () => {
     const idoOwner = await newClient();
     await airdrop(idoOwner);
 
-    const snip20 = await deploySnip20(admin);
+    const snip20 = await Snip20.deploy(admin);
 
-    const mintMsg = getExecuteMsg<Snip20ExecuteMsg>(snip20, admin.address, {
+    const mintMsg = getExecuteMsg<Snip20.HandleMsg>(snip20, admin.address, {
       mint: { recipient: idoOwner.address, amount: "100000000" },
     });
 
     await broadcastWithCheck(admin, [mintMsg]);
 
     const time = currentTime();
-    const startIdoMsg: IdoExecuteMsg = {
+    const startIdoMsg: Ido.HandleMsg = {
       start_ido: {
         start_time: time,
-        end_time: time + 20,
+        end_time: time + 30,
         token_contract: snip20.address,
         token_contract_hash: snip20.codeHash,
-        price: "1000",
+        price: "1",
         total_amount: "20000",
       },
     };
 
     const messages = [];
     messages.push(
-      getExecuteMsg<Snip20ExecuteMsg>(snip20, idoOwner.address, {
+      getExecuteMsg<Snip20.HandleMsg>(snip20, idoOwner.address, {
         increase_allowance: {
           spender: idoContractInfo.address,
           amount: "20000",
@@ -106,6 +91,21 @@ describe("Deploy", () => {
       getExecuteMsg(idoContractInfo, idoOwner.address, startIdoMsg),
     );
 
-    await broadcastWithCheck(idoOwner, messages);
+    const data = await broadcastWithCheck(idoOwner, messages);
+    ido_id = data[1].start_ido.ido_id;
+  });
+
+  it("Buy tokens", async () => {
+    const investor = await newClient();
+    await airdrop(investor);
+
+    await Tier.setTier(investor, 2);
+    await Ido.addWhitelist(admin, investor.address);
+
+    await Ido.buyTokens(
+      investor,
+      ido_id,
+      30,
+    );
   });
 });

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import axios from "axios";
 import {
   CodeInfoResponse,
+  Coin,
   JsonLog,
   Msg,
   MsgExecuteContract,
@@ -13,6 +14,12 @@ export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function waitFor(timestamp: number) {
+  const currentTimestamp = currentTime();
+  const waitTime = timestamp - currentTimestamp;
+  return new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
+}
+
 export function currentTime(): number {
   return Math.floor(new Date().getTime() / 1000);
 }
@@ -20,12 +27,16 @@ export function currentTime(): number {
 export async function broadcastWithCheck(
   client: SecretNetworkClient,
   messages: Msg[],
-  gasLimit = 100_000,
+  gasLimit = 150_000,
 ) {
   const transaction = await client.tx.broadcast(messages, { gasLimit });
   if (transaction.code != 0) {
     throw new Error(transaction.rawLog);
   }
+
+  return transaction.data.map((d) =>
+    JSON.parse(Buffer.from(d).toString("utf8"))
+  );
 }
 
 export async function airdrop(
@@ -209,11 +220,13 @@ export function getExecuteMsg<T extends object>(
   contract: ContractDeployInfo,
   sender: string,
   msg: T,
+  sentFunds?: Coin[],
 ): MsgExecuteContract<T> {
   return new MsgExecuteContract({
     sender,
     contractAddress: contract.address,
     codeHash: contract.codeHash,
     msg,
+    sentFunds,
   });
 }

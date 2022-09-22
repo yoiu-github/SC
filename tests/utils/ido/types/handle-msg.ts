@@ -1,19 +1,4 @@
-import { SecretNetworkClient } from "secretjs";
-import { ContractDeployInfo, deployContractIfNeeded } from "./utils";
-
-export type IdoInitMsg = {
-  max_payments: string[];
-  lock_periods: number[];
-  tier_contract: string;
-  tier_contract_hash: string;
-  nft_contract: string;
-  nft_contract_hash: string;
-  token_contract: string;
-  token_contract_hash: string;
-  whitelist?: string[];
-};
-
-export type IdoExecuteMsg =
+export type HandleMsg =
   | {
     start_ido: {
       end_time: number;
@@ -79,16 +64,3 @@ export type IdoExecuteMsg =
 
 export type Uint128 = string;
 export type HumanAddr = string;
-
-export async function deployIdo(
-  client: SecretNetworkClient,
-  initMsg: IdoInitMsg,
-  label = "ido",
-): Promise<ContractDeployInfo> {
-  return await deployContractIfNeeded(
-    client,
-    "./build/ido.wasm",
-    initMsg,
-    label,
-  );
-}

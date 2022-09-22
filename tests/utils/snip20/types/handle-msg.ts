@@ -1,7 +1,4 @@
-import { SecretNetworkClient } from "secretjs";
-import { ContractDeployInfo, deployContractIfNeeded } from "./utils";
-
-export type Snip20ExecuteMsg =
+export type HandleMsg =
   | {
     redeem: {
       amount: Uint128;
@@ -232,6 +229,7 @@ export type Snip20ExecuteMsg =
     };
     [k: string]: unknown;
   };
+
 export type Uint128 = string;
 export type HumanAddr = string;
 export type Binary = string;
@@ -246,6 +244,7 @@ export interface TransferAction {
   recipient: HumanAddr;
   [k: string]: unknown;
 }
+
 export interface SendAction {
   amount: Uint128;
   memo?: string | null;
@@ -254,6 +253,7 @@ export interface SendAction {
   recipient_code_hash?: string | null;
   [k: string]: unknown;
 }
+
 export interface TransferFromAction {
   amount: Uint128;
   memo?: string | null;
@@ -261,6 +261,7 @@ export interface TransferFromAction {
   recipient: HumanAddr;
   [k: string]: unknown;
 }
+
 export interface SendFromAction {
   amount: Uint128;
   memo?: string | null;
@@ -270,63 +271,17 @@ export interface SendFromAction {
   recipient_code_hash?: string | null;
   [k: string]: unknown;
 }
+
 export interface BurnFromAction {
   amount: Uint128;
   memo?: string | null;
   owner: HumanAddr;
   [k: string]: unknown;
 }
+
 export interface MintAction {
   amount: Uint128;
   memo?: string | null;
   recipient: HumanAddr;
   [k: string]: unknown;
-}
-
-export type InitialBalance = {
-  address: string;
-  amount: string;
-};
-
-export type Snip20Config = {
-  public_total_supply?: boolean;
-  enable_deposit?: boolean;
-  enable_redeem?: boolean;
-  enable_mint?: boolean;
-  enable_burn?: boolean;
-};
-
-export type Snip20InitMsg = {
-  name: string;
-  admin?: string;
-  symbol: string;
-  decimals: number;
-  initial_balances?: InitialBalance[];
-  prng_seed: string;
-  config?: Snip20Config;
-};
-
-export async function deploySnip20(
-  client: SecretNetworkClient,
-  label = "snip20",
-  initMsg?: Snip20InitMsg,
-  path?: string,
-): Promise<ContractDeployInfo> {
-  initMsg = initMsg || {
-    name: "Snip20Token",
-    symbol: "SNIP",
-    decimals: 6,
-    prng_seed: "seed",
-    config: {
-      enable_mint: true,
-    },
-  };
-
-  path = path || "./build/snip20.wasm";
-  return await deployContractIfNeeded(
-    client,
-    path,
-    initMsg,
-    label,
-  );
 }
