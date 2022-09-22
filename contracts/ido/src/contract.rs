@@ -320,7 +320,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     ido.save(&mut deps.storage)?;
 
-    let token_address = deps.api.human_address(&ido.token_contract)?;
+    let token_address = deps.api.human_address(&config.token_contract)?;
     let ido_owner = deps.api.human_address(&ido.owner)?;
 
     let transfer_msg = transfer_from_msg(
@@ -330,11 +330,12 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         None,
         None,
         BLOCK_SIZE,
-        ido.token_contract_hash,
+        config.token_contract_hash,
         token_address,
     )?;
 
     let answer = to_binary(&HandleAnswer::BuyTokens {
+        unlock_time,
         amount: Uint128(amount),
         status: ResponseStatus::Success,
     })?;

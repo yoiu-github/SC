@@ -131,6 +131,7 @@ pub enum HandleAnswer {
     },
     BuyTokens {
         amount: Uint128,
+        unlock_time: u64,
         status: ResponseStatus,
     },
     RecvTokens {

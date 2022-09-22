@@ -93,7 +93,8 @@
           "type": "object",
           "required": [
             "amount",
-            "status"
+            "status",
+            "unlock_time"
           ],
           "properties": {
             "amount": {
@@ -101,6 +102,11 @@
             },
             "status": {
               "$ref": "#/definitions/ResponseStatus"
+            },
+            "unlock_time": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
             }
           }
         }
