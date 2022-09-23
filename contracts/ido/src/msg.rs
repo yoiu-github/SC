@@ -1,6 +1,5 @@
 use cosmwasm_std::{HumanAddr, StdError, StdResult, Uint128};
 use schemars::JsonSchema;
-use secret_toolkit_utils::Query;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
@@ -10,31 +9,12 @@ pub enum ResponseStatus {
     Failure,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TierTokenQuery {
-    TierOf { token_id: String },
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NftToken {
+    pub token_id: String,
+    pub viewing_key: String,
 }
 
-impl Query for TierTokenQuery {
-    const BLOCK_SIZE: usize = 256;
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TierContractQuery {
-    TierOf { address: HumanAddr },
-}
-
-impl Query for TierContractQuery {
-    const BLOCK_SIZE: usize = 256;
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TierReponse {
-    TierOf { tier: u8 },
-}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
@@ -97,7 +77,7 @@ pub enum HandleMsg {
     BuyTokens {
         ido_id: u32,
         amount: Uint128,
-        token_id: Option<String>,
+        token: Option<NftToken>,
         padding: Option<String>,
     },
     RecvTokens {

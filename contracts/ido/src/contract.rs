@@ -1,19 +1,17 @@
 use crate::{
-    msg::{
-        HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg, ResponseStatus, TierContractQuery,
-        TierReponse, TierTokenQuery,
-    },
+    msg::{HandleAnswer, HandleMsg, InitMsg, NftToken, QueryAnswer, QueryMsg, ResponseStatus},
     state::{self, Config, Ido, Purchase},
+    tier::get_tier_index,
 };
 use cosmwasm_std::{
     to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
     Querier, QueryResult, StdError, StdResult, Storage, Uint128,
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
-use secret_toolkit_utils::{pad_handle_result, pad_query_result, Query};
-use std::cmp::{max, min};
+use secret_toolkit_utils::{pad_handle_result, pad_query_result};
+use std::cmp::min;
 
-const BLOCK_SIZE: usize = 256;
+pub const BLOCK_SIZE: usize = 256;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -91,9 +89,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::BuyTokens {
             amount,
             ido_id,
-            token_id,
+            token,
             ..
-        } => buy_tokens(deps, env, ido_id, amount.u128(), token_id),
+        } => buy_tokens(deps, env, ido_id, amount.u128(), token),
         HandleMsg::WhitelistAdd {
             addresses, ido_id, ..
         } => whitelist_add(deps, env, addresses, ido_id),
@@ -183,48 +181,12 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-fn get_tier<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    address: HumanAddr,
-    ido_id: u32,
-    token_id: Option<String>,
-) -> StdResult<u8> {
-    let config = Config::load(&deps.storage)?;
-    let canonical_address = deps.api.canonical_address(&address)?;
-
-    // If address not in whitelist, tier = 0
-    let common_whitelist = state::common_whitelist();
-    if !common_whitelist.contains(&deps.storage, &canonical_address) {
-        let ido_whitelist = state::ido_whitelist(ido_id);
-        if !ido_whitelist.contains(&deps.storage, &canonical_address) {
-            return Ok(0);
-        }
-    }
-
-    let mut nft_tier = 0;
-    if let Some(token_id) = token_id {
-        let tier_of = TierTokenQuery::TierOf { token_id };
-        let nft_contract = deps.api.human_address(&config.nft_contract)?;
-        let TierReponse::TierOf { tier } =
-            tier_of.query(&deps.querier, config.nft_contract_hash, nft_contract)?;
-
-        nft_tier = tier;
-    }
-
-    let tier_of = TierContractQuery::TierOf { address };
-    let tier_contract = deps.api.human_address(&config.tier_contract)?;
-    let TierReponse::TierOf { tier } =
-        tier_of.query(&deps.querier, config.tier_contract_hash, tier_contract)?;
-
-    Ok(max(tier, nft_tier))
-}
-
 fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     ido_id: u32,
     amount: u128,
-    token_id: Option<String>,
+    token: Option<NftToken>,
 ) -> HandleResult {
     let mut ido = Ido::load(&deps.storage, ido_id)?;
 
@@ -242,7 +204,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     }
 
     let sender = env.message.sender;
-    let tier = get_tier(deps, sender.clone(), ido_id, token_id)?;
+    let tier = get_tier_index(deps, sender.clone(), ido_id, token)?;
     let remaining_amount = ido.remaining_tokens_per_tier(tier);
 
     if remaining_amount == 0 {
