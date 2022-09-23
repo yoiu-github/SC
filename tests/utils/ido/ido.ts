@@ -7,7 +7,9 @@ import {
   getExecuteMsg,
   Ido,
   Snip20,
+  Snip721,
 } from "..";
+import { NftToken } from "./types/handle-msg";
 
 export async function deploy(
   client: SecretNetworkClient,
@@ -32,7 +34,7 @@ export async function addWhitelist(
   const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg>(
     idoContract,
     client.address,
-    { whitelist_add: { addresses: [address] }, ido_id: idoId },
+    { whitelist_add: { addresses: [address], ido_id: idoId } },
   );
 
   const response = await broadcastWithCheck(client, [addWhitelistMsg]);
@@ -43,12 +45,13 @@ export async function buyTokens(
   client: SecretNetworkClient,
   idoId: number,
   amount: number,
+  token_id?: string,
   sscrtLabel = "sscrt",
+  nftLabel = "snip721",
   idoLabel = "ido",
 ): Promise<Ido.HandleAnswer.BuyTokens> {
   const sscrtContract = await getContractWithCheck(client, sscrtLabel);
   const idoContract = await getContractWithCheck(client, idoLabel);
-
   const depositMsg = getExecuteMsg<Snip20.HandleMsg>(
     sscrtContract,
     client.address,
@@ -67,15 +70,36 @@ export async function buyTokens(
     },
   );
 
+  const messages = [];
+  messages.push(depositMsg);
+  messages.push(increaseAllowanceMsg);
+
+  let token: NftToken | undefined;
+  if (token_id != null) {
+    token = {
+      token_id,
+      viewing_key: "random key",
+    };
+
+    const nftContract = await getContractWithCheck(client, nftLabel);
+    const setViewingKey = getExecuteMsg<Snip721.HandleMsg>(
+      nftContract,
+      client.address,
+      { set_viewing_key: { key: token.viewing_key } },
+    );
+
+    messages.push(setViewingKey);
+  }
+
   const buyTokensMsg = getExecuteMsg<Ido.HandleMsg>(
     idoContract,
     client.address,
-    { buy_tokens: { ido_id: idoId, amount: amount.toString() } },
+    { buy_tokens: { ido_id: idoId, amount: amount.toString(), token } },
   );
 
-  const messages = [depositMsg, increaseAllowanceMsg, buyTokensMsg];
-  const response = await broadcastWithCheck(client, messages);
-  return response[2] as Ido.HandleAnswer.BuyTokens;
+  messages.push(buyTokensMsg);
+  const response = await broadcastWithCheck(client, messages, 200_000);
+  return response[messages.length - 1] as Ido.HandleAnswer.BuyTokens;
 }
 
 export async function recvTokens(

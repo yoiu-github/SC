@@ -27,7 +27,7 @@ export function currentTime(): number {
 export async function broadcastWithCheck(
   client: SecretNetworkClient,
   messages: Msg[],
-  gasLimit = 150_000,
+  gasLimit = 200_000,
 ) {
   const transaction = await client.tx.broadcast(messages, { gasLimit });
   if (transaction.code != 0) {
@@ -202,7 +202,7 @@ export async function deployContractIfNeeded(
     initMsg,
     codeHash,
     label,
-  }, { gasLimit: 100000 });
+  }, { gasLimit: 150000 });
 
   if (contract.code != 0) {
     throw new Error(

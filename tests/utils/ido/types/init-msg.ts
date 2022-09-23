@@ -11,5 +11,4 @@ export interface InitMsg {
   token_contract: HumanAddr;
   token_contract_hash: string;
   whitelist?: HumanAddr[] | null;
-  [k: string]: unknown;
 }
