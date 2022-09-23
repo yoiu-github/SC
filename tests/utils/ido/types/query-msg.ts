@@ -1,72 +1,82 @@
-export type QueryMsg =
-  | {
-    config: never;
-  }
-  | {
-    ido_amount: never;
-  }
-  | {
-    ido_info: {
-      ido_id: number;
-    };
-  }
-  | {
-    whitelist_amount: {
-      ido_id?: number | null;
-    };
-  }
-  | {
-    whitelist: {
-      ido_id?: number | null;
-      limit: number;
-      start: number;
-    };
-  }
-  | {
-    ido_amount_owned_by: {
-      address: HumanAddr;
-    };
-  }
-  | {
-    ido_list_owned_by: {
-      address: HumanAddr;
-      limit: number;
-      start: number;
-    };
-  }
-  | {
-    purchases_amount: {
-      address: HumanAddr;
-      ido_id: number;
-    };
-  }
-  | {
-    purchases: {
-      address: HumanAddr;
-      ido_id: number;
-      limit: number;
-      start: number;
-    };
-  }
-  | {
-    archived_purchases_amount: {
-      address: HumanAddr;
-      ido_id: number;
-    };
-  }
-  | {
-    archived_purchases: {
-      address: HumanAddr;
-      ido_id: number;
-      limit: number;
-      start: number;
-    };
-  }
-  | {
-    user_info: {
-      address: HumanAddr;
-      ido_id?: number | null;
-    };
+export type Config = {
+  config: Record<string, never>;
+};
+
+export type IdoAmount = {
+  ido_amount: Record<string, never>;
+};
+
+export type IdoInfo = {
+  ido_info: {
+    ido_id: number;
   };
+};
+
+export type WhitelistAmount = {
+  whitelist_amount: {
+    ido_id?: number | null;
+  };
+};
+
+export type Whitelist = {
+  whitelist: {
+    ido_id?: number | null;
+    limit: number;
+    start: number;
+  };
+};
+
+export type IdoAmountOwnedBy = {
+  ido_amount_owned_by: {
+    address: HumanAddr;
+  };
+};
+
+export type IdoListOwnedBy = {
+  ido_list_owned_by: {
+    address: HumanAddr;
+    limit: number;
+    start: number;
+  };
+};
+
+export type PurchasesAmount = {
+  purchases_amount: {
+    address: HumanAddr;
+    ido_id: number;
+  };
+};
+
+export type Purchases = {
+  purchases: {
+    address: HumanAddr;
+    ido_id: number;
+    limit: number;
+    start: number;
+  };
+};
+
+export type ArchivedPurchasesAmount = {
+  archived_purchases_amount: {
+    address: HumanAddr;
+    ido_id: number;
+  };
+};
+
+export type ArchivedPurchases = {
+  archived_purchases: {
+    address: HumanAddr;
+    ido_id: number;
+    limit: number;
+    start: number;
+  };
+};
+
+export type UserInfo = {
+  user_info: {
+    address: HumanAddr;
+    ido_id?: number | null;
+  };
+};
 
 export type HumanAddr = string;

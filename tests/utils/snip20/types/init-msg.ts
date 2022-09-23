@@ -10,7 +10,6 @@ export interface InitMsg {
   name: string;
   prng_seed: Binary;
   symbol: string;
-  [k: string]: unknown;
 }
 
 /**
@@ -37,11 +36,9 @@ export interface InitConfig {
    * Indicates whether the total supply is public or should be kept secret. default: False
    */
   public_total_supply?: boolean | null;
-  [k: string]: unknown;
 }
 
 export interface InitialBalance {
   address: HumanAddr;
   amount: Uint128;
-  [k: string]: unknown;
 }

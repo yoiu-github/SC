@@ -31,11 +31,11 @@ export async function deploy(
 
 export async function mint(
   client: SecretNetworkClient,
-  msg: Snip721.HandleMsg,
+  msg: Snip721.HandleMsg.MintNft,
   label = "snip721",
 ): Promise<Snip721.HandleAnswer.MintNft> {
   const nftContract = await getContractWithCheck(client, label);
-  const mintNftMsg = getExecuteMsg<Snip721.HandleMsg>(
+  const mintNftMsg = getExecuteMsg<Snip721.HandleMsg.MintNft>(
     nftContract,
     client.address,
     msg,

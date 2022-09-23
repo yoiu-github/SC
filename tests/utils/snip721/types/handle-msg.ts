@@ -1,481 +1,509 @@
-export type HandleMsg =
-  | {
-    mint_nft: {
-      /**
-       * optional memo for the tx
-       */
-      memo?: string | null;
-      /**
-       * optional owner address. if omitted, owned by the message sender
-       */
-      owner?: HumanAddr | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * optional private metadata that can only be seen by the owner and whitelist
-       */
-      private_metadata?: Metadata | null;
-      /**
-       * optional public metadata that can be seen by everyone
-       */
-      public_metadata?: Metadata | null;
-      /**
-       * optional royalty information for this token.  This will be ignored if the token is non-transferable
-       */
-      royalty_info?: RoyaltyInfo | null;
-      /**
-       * optional serial number for this token
-       */
-      serial_number?: SerialNumber | null;
-      /**
-       * optional token id. if omitted, use current token index
-       */
-      token_id?: string | null;
-      /**
-       * optionally true if the token is transferable.  Defaults to true if omitted
-       */
-      transferable?: boolean | null;
-    };
-  }
-  | {
-    batch_mint_nft: {
-      /**
-       * list of mint operations to perform
-       */
-      mints: Mint[];
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    mint_nft_clones: {
-      /**
-       * optional memo for the mint txs
-       */
-      memo?: string | null;
-      /**
-       * optional mint run ID
-       */
-      mint_run_id?: string | null;
-      /**
-       * optional owner address. if omitted, owned by the message sender
-       */
-      owner?: HumanAddr | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * optional private metadata that can only be seen by the owner and whitelist
-       */
-      private_metadata?: Metadata | null;
-      /**
-       * optional public metadata that can be seen by everyone
-       */
-      public_metadata?: Metadata | null;
-      /**
-       * number of clones to mint
-       */
-      quantity: number;
-      /**
-       * optional royalty information for these tokens
-       */
-      royalty_info?: RoyaltyInfo | null;
-    };
-  }
-  | {
-    set_metadata: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * the optional new private metadata
-       */
-      private_metadata?: Metadata | null;
-      /**
-       * the optional new public metadata
-       */
-      public_metadata?: Metadata | null;
-      /**
-       * id of the token whose metadata should be updated
-       */
-      token_id: string;
-    };
-  }
-  | {
-    set_royalty_info: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * the new royalty information.  If None, existing royalty information will be deleted.  It should be noted, that if deleting a token's royalty information while the contract has a default royalty info set up will give the token the default royalty information
-       */
-      royalty_info?: RoyaltyInfo | null;
-      /**
-       * optional id of the token whose royalty information should be updated.  If not provided, this updates the default royalty information for any new tokens minted on the contract
-       */
-      token_id?: string | null;
-    };
-  }
-  | {
-    reveal: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * id of the token to unwrap
-       */
-      token_id: string;
-    };
-  }
-  | {
-    make_ownership_private: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    set_global_approval: {
-      /**
-       * optional expiration
-       */
-      expires?: Expiration | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * optional token id to apply approval/revocation to
-       */
-      token_id?: string | null;
-      /**
-       * optional permission level for viewing the owner
-       */
-      view_owner?: AccessLevel | null;
-      /**
-       * optional permission level for viewing private metadata
-       */
-      view_private_metadata?: AccessLevel | null;
-    };
-  }
-  | {
-    set_whitelisted_approval: {
-      /**
-       * address being granted/revoked permission
-       */
-      address: HumanAddr;
-      /**
-       * optional expiration
-       */
-      expires?: Expiration | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * optional token id to apply approval/revocation to
-       */
-      token_id?: string | null;
-      /**
-       * optional permission level for transferring
-       */
-      transfer?: AccessLevel | null;
-      /**
-       * optional permission level for viewing the owner
-       */
-      view_owner?: AccessLevel | null;
-      /**
-       * optional permission level for viewing private metadata
-       */
-      view_private_metadata?: AccessLevel | null;
-    };
-  }
-  | {
-    approve: {
-      /**
-       * optional expiration for this approval
-       */
-      expires?: Expiration | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * address being granted the permission
-       */
-      spender: HumanAddr;
-      /**
-       * id of the token that the spender can transfer
-       */
-      token_id: string;
-    };
-  }
-  | {
-    revoke: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * address whose permission is revoked
-       */
-      spender: HumanAddr;
-      /**
-       * id of the token that the spender can no longer transfer
-       */
-      token_id: string;
-    };
-  }
-  | {
-    approve_all: {
-      /**
-       * optional expiration for this approval
-       */
-      expires?: Expiration | null;
-      /**
-       * address being granted permission to transfer
-       */
-      operator: HumanAddr;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    revoke_all: {
-      /**
-       * address whose permissions are revoked
-       */
-      operator: HumanAddr;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    transfer_nft: {
-      /**
-       * optional memo for the tx
-       */
-      memo?: string | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * recipient of the transfer
-       */
-      recipient: HumanAddr;
-      /**
-       * id of the token to transfer
-       */
-      token_id: string;
-    };
-  }
-  | {
-    batch_transfer_nft: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * list of transfers to perform
-       */
-      transfers: Transfer[];
-    };
-  }
-  | {
-    send_nft: {
-      /**
-       * address to send the token to
-       */
-      contract: HumanAddr;
-      /**
-       * optional memo for the tx
-       */
-      memo?: string | null;
-      /**
-       * optional message to send with the (Batch)RecieveNft callback
-       */
-      msg?: Binary | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * optional code hash and BatchReceiveNft implementation status of the recipient contract
-       */
-      receiver_info?: ReceiverInfo | null;
-      /**
-       * id of the token to send
-       */
-      token_id: string;
-    };
-  }
-  | {
-    batch_send_nft: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * list of sends to perform
-       */
-      sends: Send[];
-    };
-  }
-  | {
-    burn_nft: {
-      /**
-       * optional memo for the tx
-       */
-      memo?: string | null;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * token to burn
-       */
-      token_id: string;
-    };
-  }
-  | {
-    batch_burn_nft: {
-      /**
-       * list of burns to perform
-       */
-      burns: Burn[];
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    register_receive_nft: {
-      /**
-       * optionally true if the contract also implements BatchReceiveNft.  Defaults to false if not specified
-       */
-      also_implements_batch_receive_nft?: boolean | null;
-      /**
-       * receving contract's code hash
-       */
-      code_hash: string;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    create_viewing_key: {
-      /**
-       * entropy String used in random key generation
-       */
-      entropy: string;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    set_viewing_key: {
-      /**
-       * desired viewing key
-       */
-      key: string;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    add_minters: {
-      /**
-       * list of addresses that can now mint
-       */
-      minters: HumanAddr[];
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    remove_minters: {
-      /**
-       * list of addresses no longer allowed to mint
-       */
-      minters: HumanAddr[];
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    set_minters: {
-      /**
-       * list of addresses with minting authority
-       */
-      minters: HumanAddr[];
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    change_admin: {
-      /**
-       * address with admin authority
-       */
-      address: HumanAddr;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    set_contract_status: {
-      /**
-       * status level
-       */
-      level: ContractStatus;
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-    };
-  }
-  | {
-    revoke_permit: {
-      /**
-       * optional message length padding
-       */
-      padding?: string | null;
-      /**
-       * name of the permit that is no longer valid
-       */
-      permit_name: string;
-    };
+export type MintNft = {
+  mint_nft: {
+    /**
+     * optional memo for the tx
+     */
+    memo?: string | null;
+    /**
+     * optional owner address. if omitted, owned by the message sender
+     */
+    owner?: HumanAddr | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * optional private metadata that can only be seen by the owner and whitelist
+     */
+    private_metadata?: Metadata | null;
+    /**
+     * optional public metadata that can be seen by everyone
+     */
+    public_metadata?: Metadata | null;
+    /**
+     * optional royalty information for this token.  This will be ignored if the token is non-transferable
+     */
+    royalty_info?: RoyaltyInfo | null;
+    /**
+     * optional serial number for this token
+     */
+    serial_number?: SerialNumber | null;
+    /**
+     * optional token id. if omitted, use current token index
+     */
+    token_id?: string | null;
+    /**
+     * optionally true if the token is transferable.  Defaults to true if omitted
+     */
+    transferable?: boolean | null;
   };
+};
+
+export type BatchMintNft = {
+  batch_mint_nft: {
+    /**
+     * list of mint operations to perform
+     */
+    mints: Mint[];
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type MintNftClones = {
+  mint_nft_clones: {
+    /**
+     * optional memo for the mint txs
+     */
+    memo?: string | null;
+    /**
+     * optional mint run ID
+     */
+    mint_run_id?: string | null;
+    /**
+     * optional owner address. if omitted, owned by the message sender
+     */
+    owner?: HumanAddr | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * optional private metadata that can only be seen by the owner and whitelist
+     */
+    private_metadata?: Metadata | null;
+    /**
+     * optional public metadata that can be seen by everyone
+     */
+    public_metadata?: Metadata | null;
+    /**
+     * number of clones to mint
+     */
+    quantity: number;
+    /**
+     * optional royalty information for these tokens
+     */
+    royalty_info?: RoyaltyInfo | null;
+  };
+};
+
+export type SetMetadata = {
+  set_metadata: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * the optional new private metadata
+     */
+    private_metadata?: Metadata | null;
+    /**
+     * the optional new public metadata
+     */
+    public_metadata?: Metadata | null;
+    /**
+     * id of the token whose metadata should be updated
+     */
+    token_id: string;
+  };
+};
+
+export type SetRoyaltyInfo = {
+  set_royalty_info: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * the new royalty information.  If None, existing royalty information will be deleted.  It should be noted, that if deleting a token's royalty information while the contract has a default royalty info set up will give the token the default royalty information
+     */
+    royalty_info?: RoyaltyInfo | null;
+    /**
+     * optional id of the token whose royalty information should be updated.  If not provided, this updates the default royalty information for any new tokens minted on the contract
+     */
+    token_id?: string | null;
+  };
+};
+
+export type Reveal = {
+  reveal: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * id of the token to unwrap
+     */
+    token_id: string;
+  };
+};
+
+export type MakeOwnershipPrivate = {
+  make_ownership_private: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type SetGlobalApproval = {
+  set_global_approval: {
+    /**
+     * optional expiration
+     */
+    expires?: Expiration | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * optional token id to apply approval/revocation to
+     */
+    token_id?: string | null;
+    /**
+     * optional permission level for viewing the owner
+     */
+    view_owner?: AccessLevel | null;
+    /**
+     * optional permission level for viewing private metadata
+     */
+    view_private_metadata?: AccessLevel | null;
+  };
+};
+
+export type SetWhitelistedApproval = {
+  set_whitelisted_approval: {
+    /**
+     * address being granted/revoked permission
+     */
+    address: HumanAddr;
+    /**
+     * optional expiration
+     */
+    expires?: Expiration | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * optional token id to apply approval/revocation to
+     */
+    token_id?: string | null;
+    /**
+     * optional permission level for transferring
+     */
+    transfer?: AccessLevel | null;
+    /**
+     * optional permission level for viewing the owner
+     */
+    view_owner?: AccessLevel | null;
+    /**
+     * optional permission level for viewing private metadata
+     */
+    view_private_metadata?: AccessLevel | null;
+  };
+};
+
+export type Approve = {
+  approve: {
+    /**
+     * optional expiration for this approval
+     */
+    expires?: Expiration | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * address being granted the permission
+     */
+    spender: HumanAddr;
+    /**
+     * id of the token that the spender can transfer
+     */
+    token_id: string;
+  };
+};
+
+export type Revoke = {
+  revoke: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * address whose permission is revoked
+     */
+    spender: HumanAddr;
+    /**
+     * id of the token that the spender can no longer transfer
+     */
+    token_id: string;
+  };
+};
+
+export type ApproveAll = {
+  approve_all: {
+    /**
+     * optional expiration for this approval
+     */
+    expires?: Expiration | null;
+    /**
+     * address being granted permission to transfer
+     */
+    operator: HumanAddr;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type RevokeAll = {
+  revoke_all: {
+    /**
+     * address whose permissions are revoked
+     */
+    operator: HumanAddr;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type TransferNft = {
+  transfer_nft: {
+    /**
+     * optional memo for the tx
+     */
+    memo?: string | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * recipient of the transfer
+     */
+    recipient: HumanAddr;
+    /**
+     * id of the token to transfer
+     */
+    token_id: string;
+  };
+};
+
+export type BatchTransferNft = {
+  batch_transfer_nft: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * list of transfers to perform
+     */
+    transfers: Transfer[];
+  };
+};
+
+export type SendNft = {
+  send_nft: {
+    /**
+     * address to send the token to
+     */
+    contract: HumanAddr;
+    /**
+     * optional memo for the tx
+     */
+    memo?: string | null;
+    /**
+     * optional message to send with the (Batch)RecieveNft callback
+     */
+    msg?: Binary | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * optional code hash and BatchReceiveNft implementation status of the recipient contract
+     */
+    receiver_info?: ReceiverInfo | null;
+    /**
+     * id of the token to send
+     */
+    token_id: string;
+  };
+};
+
+export type BatchSendNft = {
+  batch_send_nft: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * list of sends to perform
+     */
+    sends: Send[];
+  };
+};
+
+export type BurnNft = {
+  burn_nft: {
+    /**
+     * optional memo for the tx
+     */
+    memo?: string | null;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * token to burn
+     */
+    token_id: string;
+  };
+};
+
+export type BatchBurnNft = {
+  batch_burn_nft: {
+    /**
+     * list of burns to perform
+     */
+    burns: Burn[];
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type RegisterReceiveNft = {
+  register_receive_nft: {
+    /**
+     * optionally true if the contract also implements BatchReceiveNft.  Defaults to false if not specified
+     */
+    also_implements_batch_receive_nft?: boolean | null;
+    /**
+     * receving contract's code hash
+     */
+    code_hash: string;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type CreateViewingKey = {
+  create_viewing_key: {
+    /**
+     * entropy String used in random key generation
+     */
+    entropy: string;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type SetViewingKey = {
+  set_viewing_key: {
+    /**
+     * desired viewing key
+     */
+    key: string;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type AddMinters = {
+  add_minters: {
+    /**
+     * list of addresses that can now mint
+     */
+    minters: HumanAddr[];
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type RemoveMinters = {
+  remove_minters: {
+    /**
+     * list of addresses no longer allowed to mint
+     */
+    minters: HumanAddr[];
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type SetMinters = {
+  set_minters: {
+    /**
+     * list of addresses with minting authority
+     */
+    minters: HumanAddr[];
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type ChangeAdmin = {
+  change_admin: {
+    /**
+     * address with admin authority
+     */
+    address: HumanAddr;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type SetContractStatus = {
+  set_contract_status: {
+    /**
+     * status level
+     */
+    level: ContractStatus;
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+  };
+};
+
+export type RevokePermit = {
+  revoke_permit: {
+    /**
+     * optional message length padding
+     */
+    padding?: string | null;
+    /**
+     * name of the permit that is no longer valid
+     */
+    permit_name: string;
+  };
+};
+
 export type HumanAddr = string;
+
 /**
  * at the given point in time and after, Expiration will be considered expired
  */

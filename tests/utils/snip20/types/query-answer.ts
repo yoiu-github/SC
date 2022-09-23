@@ -100,10 +100,10 @@ export type TxAction =
     };
   }
   | {
-    deposit: never;
+    deposit: Record<string, never>;
   }
   | {
-    redeem: never;
+    redeem: Record<string, never>;
   };
 
 export interface Tx {

@@ -27,7 +27,10 @@ export async function setTier(
   label = "tier",
 ) {
   const tierContract = await getContractWithCheck(client, label);
-  const queryTierOf: Tier.QueryMsg = { tier_of: { address: client.address } };
+  const queryTierOf: Tier.QueryMsg.TierOf = {
+    tier_of: { address: client.address },
+  };
+
   const tierOfResponse: Tier.QueryAnswer.TierOf = await client.query.compute
     .queryContract({
       contractAddress: tierContract.address,
@@ -44,7 +47,7 @@ export async function setTier(
     throw new Error("Tier cannot be decreased");
   }
 
-  const queryInfoMsg: Tier.QueryMsg = { tier_info: {} };
+  const queryInfoMsg: Tier.QueryMsg.TierInfo = { tier_info: {} };
   const tierInfoResponse: Tier.QueryAnswer.TierInfo = await client.query.compute
     .queryContract({
       contractAddress: tierContract.address,
@@ -55,7 +58,7 @@ export async function setTier(
   const tierInfo = tierInfoResponse.tier_info.tier_list[tier - 1];
   const tierExpectedDeposit = Number.parseInt(tierInfo.deposit);
 
-  const queryDepositOf: Tier.QueryMsg = {
+  const queryDepositOf: Tier.QueryMsg.DepositOf = {
     deposit_of: { address: client.address },
   };
 
@@ -70,7 +73,7 @@ export async function setTier(
   const currentDeposit = Number.parseInt(depositOfResponse.deposit_of.deposit);
   const amount = tierExpectedDeposit - currentDeposit;
 
-  const depositMsg = getExecuteMsg<Tier.HandleMsg>(
+  const depositMsg = getExecuteMsg<Tier.HandleMsg.Deposit>(
     tierContract,
     client.address,
     { deposit: {} },

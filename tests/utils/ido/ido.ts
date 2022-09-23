@@ -31,7 +31,7 @@ export async function addWhitelist(
   label = "ido",
 ): Promise<Ido.HandleAnswer.WhitelistAdd> {
   const idoContract = await getContractWithCheck(client, label);
-  const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg>(
+  const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg.WhitelistAdd>(
     idoContract,
     client.address,
     { whitelist_add: { addresses: [address], ido_id: idoId } },
@@ -52,14 +52,16 @@ export async function buyTokens(
 ): Promise<Ido.HandleAnswer.BuyTokens> {
   const sscrtContract = await getContractWithCheck(client, sscrtLabel);
   const idoContract = await getContractWithCheck(client, idoLabel);
-  const depositMsg = getExecuteMsg<Snip20.HandleMsg>(
+  const depositMsg = getExecuteMsg<Snip20.HandleMsg.Deposit>(
     sscrtContract,
     client.address,
     { deposit: {} },
     [{ denom: "uscrt", amount: amount.toString() }],
   );
 
-  const increaseAllowanceMsg = getExecuteMsg<Snip20.HandleMsg>(
+  const increaseAllowanceMsg = getExecuteMsg<
+    Snip20.HandleMsg.IncreaseAllowance
+  >(
     sscrtContract,
     client.address,
     {
@@ -82,7 +84,7 @@ export async function buyTokens(
     };
 
     const nftContract = await getContractWithCheck(client, nftLabel);
-    const setViewingKey = getExecuteMsg<Snip721.HandleMsg>(
+    const setViewingKey = getExecuteMsg<Snip721.HandleMsg.SetViewingKey>(
       nftContract,
       client.address,
       { set_viewing_key: { key: token.viewing_key } },
@@ -91,7 +93,7 @@ export async function buyTokens(
     messages.push(setViewingKey);
   }
 
-  const buyTokensMsg = getExecuteMsg<Ido.HandleMsg>(
+  const buyTokensMsg = getExecuteMsg<Ido.HandleMsg.BuyTokens>(
     idoContract,
     client.address,
     { buy_tokens: { ido_id: idoId, amount: amount.toString(), token } },
@@ -102,25 +104,52 @@ export async function buyTokens(
   return response[messages.length - 1] as Ido.HandleAnswer.BuyTokens;
 }
 
+export async function startIdo(
+  client: SecretNetworkClient,
+  startIdoMsg: Ido.HandleMsg.StartIdo,
+  idoLabel = "ido",
+  snip20Label = "snip20",
+): Promise<Ido.HandleAnswer.StartIdo> {
+  const amount = startIdoMsg.start_ido.total_amount;
+  const idoContract = await getContractWithCheck(client, idoLabel);
+  const snip20Contract = await getContractWithCheck(client, snip20Label);
+
+  const messages = [];
+  messages.push(
+    getExecuteMsg<Snip20.HandleMsg.IncreaseAllowance>(
+      snip20Contract,
+      client.address,
+      {
+        increase_allowance: {
+          spender: idoContract.address,
+          amount,
+        },
+      },
+    ),
+  );
+
+  messages.push(
+    getExecuteMsg(idoContract, client.address, startIdoMsg),
+  );
+
+  const response = await broadcastWithCheck(client, messages);
+  return response[1] as Ido.HandleAnswer.StartIdo;
+}
+
 export async function recvTokens(
   client: SecretNetworkClient,
-  ido_id: number,
+  idoId: number,
   label = "ido",
 ): Promise<Ido.HandleAnswer.RecvTokens> {
   const idoContract = await getContractWithCheck(client, label);
-  const response = await client.query.compute
-    .queryContract({
-      contractAddress: idoContract.address,
-      codeHash: idoContract.codeHash,
-      query: {
-        purchases: {
-          ido_id,
-          address: client.address,
-          start: 0,
-          limit: 100,
-        },
-      },
-    });
+  const recvTokensMsg = getExecuteMsg<Ido.HandleMsg.RecvTokens>(
+    idoContract,
+    client.address,
+    {
+      recv_tokens: { ido_id: idoId },
+    },
+  );
 
-  return response as Ido.HandleAnswer.RecvTokens;
+  const response = await broadcastWithCheck(client, [recvTokensMsg]);
+  return response[0] as Ido.HandleAnswer.RecvTokens;
 }
