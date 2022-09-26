@@ -1,4 +1,3 @@
-use crate::state::Tier;
 use cosmwasm_std::{HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,10 +9,30 @@ pub enum ResponseStatus {
     Failure,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum ContractStatus {
+    Active,
+    Stopped,
+}
+
+impl From<u8> for ContractStatus {
+    fn from(status: u8) -> Self {
+        if status == ContractStatus::Active as u8 {
+            ContractStatus::Active
+        } else if status == ContractStatus::Stopped as u8 {
+            ContractStatus::Stopped
+        } else {
+            panic!("Wrong status");
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
-    pub owner: Option<HumanAddr>,
+    pub admin: Option<HumanAddr>,
     pub validator: HumanAddr,
     pub deposits: Vec<Uint128>,
     pub lock_periods: Vec<u64>,
@@ -22,6 +41,14 @@ pub struct InitMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
+    ChangeAdmin {
+        admin: HumanAddr,
+        padding: Option<String>,
+    },
+    ChangeStatus {
+        status: ContractStatus,
+        padding: Option<String>,
+    },
     Deposit {
         padding: Option<String>,
     },
@@ -30,6 +57,8 @@ pub enum HandleMsg {
     },
     Claim {
         recipient: Option<HumanAddr>,
+        start: Option<u32>,
+        limit: Option<u32>,
         padding: Option<String>,
     },
     WithdrawRewards {
@@ -46,41 +75,80 @@ pub enum HandleMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
-    Deposit { status: ResponseStatus },
-    Withdraw { status: ResponseStatus },
-    Claim { status: ResponseStatus },
-    WithdrawRewards { status: ResponseStatus },
-    Redelegate { status: ResponseStatus },
+    ChangeAdmin {
+        status: ResponseStatus,
+    },
+    ChangeState {
+        status: ResponseStatus,
+    },
+    Deposit {
+        deposit: Uint128,
+        tier: u8,
+        status: ResponseStatus,
+    },
+    Withdraw {
+        status: ResponseStatus,
+    },
+    Claim {
+        amount: Uint128,
+        status: ResponseStatus,
+    },
+    WithdrawRewards {
+        amount: Uint128,
+        status: ResponseStatus,
+    },
+    Redelegate {
+        amount: Uint128,
+        status: ResponseStatus,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    TierInfo {},
-    TierOf { address: HumanAddr },
-    DepositOf { address: HumanAddr },
-    WhenCanWithdraw { address: HumanAddr },
-    WhenCanClaim { address: HumanAddr },
+    Config {},
+    UserInfo {
+        address: HumanAddr,
+    },
+    Withdrawals {
+        address: HumanAddr,
+        start: Option<u32>,
+        limit: Option<u32>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SerializedTierInfo {
+    pub deposit: Uint128,
+    pub lock_period: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SerializedWithdrawals {
+    pub amount: Uint128,
+    pub claim_time: u64,
+    pub timestamp: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
-    TierInfo {
-        owner: HumanAddr,
+    Config {
+        admin: HumanAddr,
         validator: HumanAddr,
-        tier_list: Vec<Tier>,
+        status: ContractStatus,
+        tier_list: Vec<SerializedTierInfo>,
     },
-    TierOf {
+    UserInfo {
         tier: u8,
-    },
-    DepositOf {
         deposit: Uint128,
+        withdraw_time: u64,
+        timestamp: u64,
     },
-    CanClaim {
-        time: Option<u64>,
-    },
-    CanWithdraw {
-        time: Option<u64>,
+    Withdrawals {
+        amount: u32,
+        withdrawals: Vec<SerializedWithdrawals>,
     },
 }
