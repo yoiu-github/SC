@@ -87,7 +87,12 @@ describe("IDO", () => {
       },
     };
 
-    const response = await idoContract.startIdo(idoOwner, startIdoMsg);
+    const response = await idoContract.startIdo(
+      idoOwner,
+      startIdoMsg,
+      snip20Contract.contractInfo,
+    );
+
     ido_id = response.start_ido.ido_id;
   });
 

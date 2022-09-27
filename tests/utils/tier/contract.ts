@@ -1,30 +1,17 @@
 import { SecretNetworkClient } from "secretjs";
-import {
-  broadcastWithCheck,
-  ContractDeployInfo,
-  deployContractIfNeeded,
-  getExecuteMsg,
-  Tier,
-} from "..";
+import { broadcastWithCheck, getExecuteMsg, Tier } from "..";
+import { BaseContract } from "../baseContract";
 
-export class TierContract {
-  label: string;
-  contractInfo: ContractDeployInfo;
-
+export class TierContract extends BaseContract {
   constructor(label = "tier") {
-    this.label = label;
+    super(label);
   }
 
   async init(
     client: SecretNetworkClient,
     initMsg: Tier.InitMsg,
   ) {
-    this.contractInfo = await deployContractIfNeeded(
-      client,
-      "./build/tier.wasm",
-      initMsg,
-      this.label,
-    );
+    await super.deploy(client, initMsg, "./build/tier.wasm");
   }
 
   async userInfo(
@@ -91,6 +78,19 @@ export class TierContract {
 
     const response = await broadcastWithCheck(client, [depositMsg]);
     return response[0] as Tier.HandleAnswer.Deposit;
+  }
+
+  async withdraw(
+    client: SecretNetworkClient,
+  ): Promise<Tier.HandleAnswer.Withdraw> {
+    const withdrawMsg = getExecuteMsg<Tier.HandleMsg.Withdraw>(
+      this.contractInfo,
+      client.address,
+      { withdraw: {} },
+    );
+
+    const response = await broadcastWithCheck(client, [withdrawMsg]);
+    return response[0] as Tier.HandleAnswer.Withdraw;
   }
 
   async setTier(

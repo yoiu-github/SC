@@ -1,23 +1,20 @@
 import { SecretNetworkClient } from "secretjs";
-import {
-  broadcastWithCheck,
-  ContractDeployInfo,
-  deployContractIfNeeded,
-  getExecuteMsg,
-  Snip20,
-} from "..";
+import { broadcastWithCheck, getExecuteMsg, Snip20 } from "..";
+import { BaseContract } from "../baseContract";
 
 export type Snip20ContractType = "snip20" | "sscrt";
 
-export class Snip20Contract {
-  label: string;
+export class Snip20Contract extends BaseContract {
   path: string;
-  contractInfo: ContractDeployInfo;
-  contractType: Snip20ContractType;
 
   constructor(label = "snip20", contractType: Snip20ContractType = "snip20") {
-    this.label = label;
-    this.contractType = contractType;
+    super(label);
+
+    if (contractType == "snip20") {
+      this.path = "./build/snip20.wasm";
+    } else {
+      this.path = "./build/sscrt.wasm";
+    }
   }
 
   async init(
@@ -34,19 +31,7 @@ export class Snip20Contract {
       },
     };
 
-    let path: string;
-    if (this.contractType == "snip20") {
-      path = "./build/snip20.wasm";
-    } else {
-      path = "./build/sscrt.wasm";
-    }
-
-    this.contractInfo = await deployContractIfNeeded(
-      client,
-      path,
-      initMsg,
-      this.label,
-    );
+    await super.deploy(client, initMsg, this.path);
   }
 
   async mint(

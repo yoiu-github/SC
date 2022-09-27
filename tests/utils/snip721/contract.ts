@@ -1,19 +1,10 @@
 import { SecretNetworkClient } from "secretjs";
-import {
-  broadcastWithCheck,
-  ContractDeployInfo,
-  deployContractIfNeeded,
-  getContractWithCheck,
-  getExecuteMsg,
-  Snip721,
-} from "..";
+import { broadcastWithCheck, getExecuteMsg, Snip721 } from "..";
+import { BaseContract } from "../baseContract";
 
-export class Snip721Contract {
-  label: string;
-  contractInfo: ContractDeployInfo;
-
+export class Snip721Contract extends BaseContract {
   constructor(label: string) {
-    this.label = label;
+    super(label);
   }
 
   async init(
@@ -21,19 +12,14 @@ export class Snip721Contract {
     initMsg?: Snip721.InitMsg,
     path?: string,
   ) {
-    path = path || "./build/snip721.wasm";
     initMsg = initMsg || {
       entropy: "entropy",
       name: "Nft collection",
       symbol: "NFT",
     };
 
-    this.contractInfo = await deployContractIfNeeded(
-      client,
-      path,
-      initMsg,
-      this.label,
-    );
+    path = path || "./build/snip721.wasm";
+    await super.deploy(client, initMsg, path);
   }
 
   async mint(

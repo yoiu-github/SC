@@ -1,19 +1,9 @@
 import { SecretNetworkClient } from "secretjs";
-import {
-  broadcastWithCheck,
-  ContractDeployInfo,
-  deployContractIfNeeded,
-  getContractWithCheck,
-  getExecuteMsg,
-  Ido,
-  Snip20,
-  Snip721,
-} from "..";
+import { broadcastWithCheck, getExecuteMsg, Ido, Snip20, Snip721 } from "..";
+import { BaseContract, ContractDeployInfo } from "../baseContract";
 import { NftToken } from "./types/handle-msg";
 
-export class IdoContract {
-  label: string;
-  contractInfo: ContractDeployInfo;
+export class IdoContract extends BaseContract {
   sscrtContract: ContractDeployInfo;
   nftContract: ContractDeployInfo;
 
@@ -22,7 +12,7 @@ export class IdoContract {
     sscrtContract: ContractDeployInfo,
     nftContract: ContractDeployInfo,
   ) {
-    this.label = label;
+    super(label);
     this.sscrtContract = sscrtContract;
     this.nftContract = nftContract;
   }
@@ -31,12 +21,7 @@ export class IdoContract {
     client: SecretNetworkClient,
     initMsg: Ido.InitMsg,
   ) {
-    this.contractInfo = await deployContractIfNeeded(
-      client,
-      "./build/ido.wasm",
-      initMsg,
-      this.label,
-    );
+    await super.deploy(client, initMsg, "./build/ido.wasm");
   }
 
   async addWhitelist(
@@ -114,12 +99,8 @@ export class IdoContract {
   async startIdo(
     client: SecretNetworkClient,
     startIdoMsg: Ido.HandleMsg.StartIdo,
-    snip20Contract: string | ContractDeployInfo = "snip20",
+    snip20Contract: ContractDeployInfo,
   ): Promise<Ido.HandleAnswer.StartIdo> {
-    if (typeof snip20Contract == "string") {
-      snip20Contract = await getContractWithCheck(client, snip20Contract);
-    }
-
     const amount = startIdoMsg.start_ido.total_amount;
 
     const messages = [];
