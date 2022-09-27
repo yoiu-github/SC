@@ -1,3 +1,17 @@
+export type ChangeAdmin = {
+  change_admin: {
+    admin: string;
+    padding?: string | null;
+  };
+};
+
+export type ChangeStatus = {
+  change_status: {
+    status: ContractStatus;
+    padding?: string | null;
+  };
+};
+
 export type Deposit = {
   deposit: {
     padding?: string | null;
@@ -33,3 +47,4 @@ export type Redelegate = {
 };
 
 export type HumanAddr = string;
+export type ContractStatus = "active" | "stopped";

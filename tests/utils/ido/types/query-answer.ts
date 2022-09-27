@@ -34,15 +34,10 @@ export type IdoInfo = {
   };
 };
 
-export type WhitelistAmount = {
-  whitelist_amount: {
-    amount: number;
-  };
-};
-
 export type Whitelist = {
   whitelist: {
     addresses: HumanAddr[];
+    amount: number;
   };
 };
 
@@ -55,25 +50,12 @@ export type IdoAmountOwnedBy = {
 export type IdoListOwnerBy = {
   ido_list_owned_by: {
     ido_ids: number[];
-    [k: string]: unknown;
-  };
-  [k: string]: unknown;
-};
-
-export type PurchasesAmount = {
-  purchases_amount: {
-    amount: number;
   };
 };
 
 export type Purchases = {
   purchases: {
     purchases: PurchaseAnswer[];
-  };
-};
-
-export type ArcivedPurchasesAmount = {
-  archived_purchases_amount: {
     amount: number;
   };
 };
@@ -81,6 +63,7 @@ export type ArcivedPurchasesAmount = {
 export type ArchivedPurchases = {
   archived_purchases: {
     purchases: PurchaseAnswer[];
+    amount: number;
   };
 };
 

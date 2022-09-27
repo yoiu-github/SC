@@ -40,26 +40,12 @@ export type IdoListOwnedBy = {
   };
 };
 
-export type PurchasesAmount = {
-  purchases_amount: {
-    address: HumanAddr;
-    ido_id: number;
-  };
-};
-
 export type Purchases = {
   purchases: {
     address: HumanAddr;
     ido_id: number;
     limit: number;
     start: number;
-  };
-};
-
-export type ArchivedPurchasesAmount = {
-  archived_purchases_amount: {
-    address: HumanAddr;
-    ido_id: number;
   };
 };
 

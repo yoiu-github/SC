@@ -1,2 +1,2 @@
 export * from "./types";
-export * from "./ido";
+export * from "./contract";

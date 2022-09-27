@@ -1,3 +1,17 @@
+export type ChangeAdmin = {
+  change_admin: {
+    admin: string;
+    padding?: string | null;
+  };
+};
+
+export type ChangeStatus = {
+  change_status: {
+    status: ContractStatus;
+    padding?: string | null;
+  };
+};
+
 export type StartIdo = {
   start_ido: {
     end_time: number;
@@ -61,3 +75,4 @@ export interface NftToken {
 
 export type Uint128 = string;
 export type HumanAddr = string;
+export type ContractStatus = "active" | "stopped";

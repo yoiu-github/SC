@@ -1,3 +1,15 @@
+export type ChangeAdmin = {
+  change_admin: {
+    status: ResponseStatus;
+  };
+};
+
+export type ChangeStatus = {
+  change_status: {
+    status: ResponseStatus;
+  };
+};
+
 export type StartIdo = {
   start_ido: {
     ido_id: number;

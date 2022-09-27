@@ -1,28 +1,18 @@
-export type TierInfo = {
-  tier_info: Record<string, never>;
+export type Config = {
+  config: Record<string, never>;
 };
 
-export type TierOf = {
-  tier_of: {
+export type UserInfo = {
+  user_info: {
     address: HumanAddr;
   };
 };
 
-export type DepositOf = {
-  deposit_of: {
+export type Withdrawals = {
+  withdrawals: {
     address: HumanAddr;
-  };
-};
-
-export type WhenCanWithdraw = {
-  when_can_withdraw: {
-    address: HumanAddr;
-  };
-};
-
-export type WhenCanClaim = {
-  when_can_claim: {
-    address: HumanAddr;
+    start?: number | null;
+    limit?: number | null;
   };
 };
 

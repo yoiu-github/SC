@@ -11,7 +11,7 @@ import {
 } from "./utils";
 import * as assert from "assert";
 
-describe("Buy tokens", () => {
+describe("IDO", () => {
   let admin: SecretNetworkClient;
   let idoOwner: SecretNetworkClient;
 
@@ -22,6 +22,13 @@ describe("Buy tokens", () => {
 
   const idoPayments = ["1000", "2000", "3000", "5000", "10000"];
   const idoLockPeriods = [20, 30, 40, 50, 60];
+
+  let idoContract: Ido.IdoContract;
+  let snip20Contract: Snip20.Snip20Contract;
+
+  const tierContract = new Tier.TierContract("Tier");
+  const nftContract = new Snip721.Snip721Contract("Snip721");
+  const sscrtContract = new Snip20.Snip20Contract("SSCRT", "sscrt");
 
   it("Deploy IDO contract", async () => {
     admin = await getAdmin();
@@ -36,44 +43,51 @@ describe("Buy tokens", () => {
       lock_periods: tierLockPeriods,
     };
 
-    const tierContractInfo = await Tier.deploy(admin, initTierMsg);
-    const sscrtContractInfo = await Snip20.deploySscrt(admin);
-    const nftContractInfo = await Snip721.deploy(admin);
+    await nftContract.init(admin);
+    await tierContract.init(admin, initTierMsg);
+    await sscrtContract.init(admin);
 
     const initIdoMsg: Ido.InitMsg = {
       max_payments: idoPayments,
       lock_periods: idoLockPeriods,
-      tier_contract: tierContractInfo.address,
-      tier_contract_hash: tierContractInfo.codeHash,
-      nft_contract: nftContractInfo.address,
-      nft_contract_hash: nftContractInfo.codeHash,
-      token_contract: sscrtContractInfo.address,
-      token_contract_hash: sscrtContractInfo.codeHash,
+      tier_contract: tierContract.contractInfo.address,
+      tier_contract_hash: tierContract.contractInfo.codeHash,
+      nft_contract: nftContract.contractInfo.address,
+      nft_contract_hash: nftContract.contractInfo.codeHash,
+      token_contract: sscrtContract.contractInfo.address,
+      token_contract_hash: sscrtContract.contractInfo.codeHash,
     };
 
-    await Ido.deploy(admin, initIdoMsg);
+    idoContract = new Ido.IdoContract(
+      "IDO",
+      sscrtContract.contractInfo,
+      nftContract.contractInfo,
+    );
+
+    await idoContract.init(admin, initIdoMsg);
   });
 
   it("Start IDO", async () => {
     idoOwner = await newClient();
     await airdrop(idoOwner);
 
-    const snip20 = await Snip20.deploy(admin);
-    await Snip20.mint(admin, idoOwner.address);
+    snip20Contract = new Snip20.Snip20Contract("snip20");
+    await snip20Contract.init(admin);
+    await snip20Contract.mint(admin, idoOwner.address);
 
     const time = currentTime();
     const startIdoMsg: Ido.HandleMsg.StartIdo = {
       start_ido: {
         start_time: time,
         end_time: time + 60,
-        token_contract: snip20.address,
-        token_contract_hash: snip20.codeHash,
+        token_contract: snip20Contract.contractInfo.address,
+        token_contract_hash: snip20Contract.contractInfo.codeHash,
         price: "1",
         total_amount: "20000",
       },
     };
 
-    const response = await Ido.startIdo(idoOwner, startIdoMsg);
+    const response = await idoContract.startIdo(idoOwner, startIdoMsg);
     ido_id = response.start_ido.ido_id;
   });
 
@@ -82,28 +96,27 @@ describe("Buy tokens", () => {
     await airdrop(user);
 
     const tier = 2;
-    // TODO: replace 3 => tier
-    await Tier.setTier(user, 3);
-    await Ido.addWhitelist(admin, user.address);
+    await tierContract.setTier(user, tier);
+    await idoContract.addWhitelist(admin, user.address);
 
     const tierIndex = idoPayments.length - tier;
     const maxPayments = Number.parseInt(idoPayments[tierIndex]);
 
     await assert.rejects(async () => {
-      await Ido.buyTokens(
+      await idoContract.buyTokens(
         user,
         ido_id,
         maxPayments + 1,
       );
     });
 
-    await Ido.buyTokens(
+    await idoContract.buyTokens(
       user,
       ido_id,
       maxPayments,
     );
 
-    const balance = await Snip20.getBalance(idoOwner, "sscrt");
+    const balance = await sscrtContract.getBalance(idoOwner);
     const balanceNumber = Number.parseInt(balance.balance.amount);
     assert.equal(balanceNumber, maxPayments);
   });
@@ -116,8 +129,8 @@ describe("Buy tokens", () => {
     const tierIndex = idoPayments.length - tier;
     const maxPayments = Number.parseInt(idoPayments[tierIndex]);
 
-    await Ido.addWhitelist(admin, user.address);
-    const mintResponse = await Snip721.mint(admin, {
+    await idoContract.addWhitelist(admin, user.address);
+    const mintResponse = await nftContract.mint(admin, {
       mint_nft: {
         owner: user.address,
         private_metadata: {
@@ -132,14 +145,14 @@ describe("Buy tokens", () => {
     });
 
     await assert.rejects(async () => {
-      await Ido.buyTokens(
+      await idoContract.buyTokens(
         user,
         ido_id,
         maxPayments + 1,
       );
     });
 
-    await Ido.buyTokens(
+    await idoContract.buyTokens(
       user,
       ido_id,
       maxPayments,
