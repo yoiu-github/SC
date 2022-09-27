@@ -136,7 +136,7 @@ pub fn try_change_status<S: Storage, A: Api, Q: Querier>(
     config.status = status as u8;
     config.save(&mut deps.storage)?;
 
-    let answer = to_binary(&HandleAnswer::ChangeState {
+    let answer = to_binary(&HandleAnswer::ChangeStatus {
         status: ResponseStatus::Success,
     })?;
 

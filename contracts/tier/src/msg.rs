@@ -78,7 +78,7 @@ pub enum HandleAnswer {
     ChangeAdmin {
         status: ResponseStatus,
     },
-    ChangeState {
+    ChangeStatus {
         status: ResponseStatus,
     },
     Deposit {
