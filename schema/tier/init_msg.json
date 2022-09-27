@@ -8,6 +8,16 @@
     "validator"
   ],
   "properties": {
+    "admin": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/HumanAddr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "deposits": {
       "type": "array",
       "items": {
@@ -21,16 +31,6 @@
         "format": "uint64",
         "minimum": 0.0
       }
-    },
-    "owner": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/HumanAddr"
-        },
-        {
-          "type": "null"
-        }
-      ]
     },
     "validator": {
       "$ref": "#/definitions/HumanAddr"

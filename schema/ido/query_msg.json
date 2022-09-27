@@ -48,27 +48,6 @@
     {
       "type": "object",
       "required": [
-        "whitelist_amount"
-      ],
-      "properties": {
-        "whitelist_amount": {
-          "type": "object",
-          "properties": {
-            "ido_id": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "whitelist"
       ],
       "properties": {
@@ -154,31 +133,6 @@
     {
       "type": "object",
       "required": [
-        "purchases_amount"
-      ],
-      "properties": {
-        "purchases_amount": {
-          "type": "object",
-          "required": [
-            "address",
-            "ido_id"
-          ],
-          "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
-            "ido_id": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "purchases"
       ],
       "properties": {
@@ -205,31 +159,6 @@
               "minimum": 0.0
             },
             "start": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "archived_purchases_amount"
-      ],
-      "properties": {
-        "archived_purchases_amount": {
-          "type": "object",
-          "required": [
-            "address",
-            "ido_id"
-          ],
-          "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            },
-            "ido_id": {
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0

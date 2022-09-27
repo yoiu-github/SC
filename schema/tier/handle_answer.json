@@ -5,10 +5,10 @@
     {
       "type": "object",
       "required": [
-        "deposit"
+        "change_admin"
       ],
       "properties": {
-        "deposit": {
+        "change_admin": {
           "type": "object",
           "required": [
             "status"
@@ -16,6 +16,54 @@
           "properties": {
             "status": {
               "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "change_status"
+      ],
+      "properties": {
+        "change_status": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "deposit"
+      ],
+      "properties": {
+        "deposit": {
+          "type": "object",
+          "required": [
+            "deposit",
+            "status",
+            "tier"
+          ],
+          "properties": {
+            "deposit": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "status": {
+              "$ref": "#/definitions/ResponseStatus"
+            },
+            "tier": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
             }
           }
         }
@@ -49,9 +97,13 @@
         "claim": {
           "type": "object",
           "required": [
+            "amount",
             "status"
           ],
           "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
             "status": {
               "$ref": "#/definitions/ResponseStatus"
             }
@@ -68,9 +120,13 @@
         "withdraw_rewards": {
           "type": "object",
           "required": [
+            "amount",
             "status"
           ],
           "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
             "status": {
               "$ref": "#/definitions/ResponseStatus"
             }
@@ -87,9 +143,13 @@
         "redelegate": {
           "type": "object",
           "required": [
+            "amount",
             "status"
           ],
           "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
             "status": {
               "$ref": "#/definitions/ResponseStatus"
             }
@@ -105,6 +165,9 @@
         "success",
         "failure"
       ]
+    },
+    "Uint128": {
+      "type": "string"
     }
   }
 }

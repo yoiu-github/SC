@@ -5,6 +5,56 @@
     {
       "type": "object",
       "required": [
+        "change_admin"
+      ],
+      "properties": {
+        "change_admin": {
+          "type": "object",
+          "required": [
+            "admin"
+          ],
+          "properties": {
+            "admin": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "change_status"
+      ],
+      "properties": {
+        "change_status": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/ContractStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "deposit"
       ],
       "properties": {
@@ -49,6 +99,14 @@
         "claim": {
           "type": "object",
           "properties": {
+            "limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "padding": {
               "type": [
                 "string",
@@ -64,6 +122,14 @@
                   "type": "null"
                 }
               ]
+            },
+            "start": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
             }
           }
         }
@@ -135,6 +201,13 @@
     }
   ],
   "definitions": {
+    "ContractStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "stopped"
+      ]
+    },
     "HumanAddr": {
       "type": "string"
     }

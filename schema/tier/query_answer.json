@@ -5,24 +5,28 @@
     {
       "type": "object",
       "required": [
-        "tier_info"
+        "config"
       ],
       "properties": {
-        "tier_info": {
+        "config": {
           "type": "object",
           "required": [
-            "owner",
+            "admin",
+            "status",
             "tier_list",
             "validator"
           ],
           "properties": {
-            "owner": {
+            "admin": {
               "$ref": "#/definitions/HumanAddr"
+            },
+            "status": {
+              "$ref": "#/definitions/ContractStatus"
             },
             "tier_list": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Tier"
+                "$ref": "#/definitions/SerializedTierInfo"
               }
             },
             "validator": {
@@ -35,57 +39,33 @@
     {
       "type": "object",
       "required": [
-        "tier_of"
+        "user_info"
       ],
       "properties": {
-        "tier_of": {
+        "user_info": {
           "type": "object",
           "required": [
-            "tier"
-          ],
-          "properties": {
-            "tier": {
-              "type": "integer",
-              "format": "uint8",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "deposit_of"
-      ],
-      "properties": {
-        "deposit_of": {
-          "type": "object",
-          "required": [
-            "deposit"
+            "deposit",
+            "tier",
+            "timestamp",
+            "withdraw_time"
           ],
           "properties": {
             "deposit": {
               "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "can_claim"
-      ],
-      "properties": {
-        "can_claim": {
-          "type": "object",
-          "properties": {
-            "time": {
-              "type": [
-                "integer",
-                "null"
-              ],
+            },
+            "tier": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "timestamp": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "withdraw_time": {
+              "type": "integer",
               "format": "uint64",
               "minimum": 0.0
             }
@@ -96,19 +76,26 @@
     {
       "type": "object",
       "required": [
-        "can_withdraw"
+        "withdrawals"
       ],
       "properties": {
-        "can_withdraw": {
+        "withdrawals": {
           "type": "object",
+          "required": [
+            "amount",
+            "withdrawals"
+          ],
           "properties": {
-            "time": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint64",
+            "amount": {
+              "type": "integer",
+              "format": "uint32",
               "minimum": 0.0
+            },
+            "withdrawals": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SerializedWithdrawals"
+              }
             }
           }
         }
@@ -116,10 +103,17 @@
     }
   ],
   "definitions": {
+    "ContractStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "stopped"
+      ]
+    },
     "HumanAddr": {
       "type": "string"
     },
-    "Tier": {
+    "SerializedTierInfo": {
       "type": "object",
       "required": [
         "deposit",
@@ -130,6 +124,29 @@
           "$ref": "#/definitions/Uint128"
         },
         "lock_period": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SerializedWithdrawals": {
+      "type": "object",
+      "required": [
+        "amount",
+        "claim_time",
+        "timestamp"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "claim_time": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "timestamp": {
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0

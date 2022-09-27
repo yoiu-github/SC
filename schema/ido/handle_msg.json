@@ -5,6 +5,56 @@
     {
       "type": "object",
       "required": [
+        "change_admin"
+      ],
+      "properties": {
+        "change_admin": {
+          "type": "object",
+          "required": [
+            "admin"
+          ],
+          "properties": {
+            "admin": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "change_status"
+      ],
+      "properties": {
+        "change_status": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "padding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/ContractStatus"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "start_ido"
       ],
       "properties": {
@@ -168,10 +218,14 @@
                 "null"
               ]
             },
-            "token_id": {
-              "type": [
-                "string",
-                "null"
+            "token": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/NftToken"
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           }
@@ -261,8 +315,30 @@
     }
   ],
   "definitions": {
+    "ContractStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "stopped"
+      ]
+    },
     "HumanAddr": {
       "type": "string"
+    },
+    "NftToken": {
+      "type": "object",
+      "required": [
+        "token_id",
+        "viewing_key"
+      ],
+      "properties": {
+        "token_id": {
+          "type": "string"
+        },
+        "viewing_key": {
+          "type": "string"
+        }
+      }
     },
     "Uint128": {
       "type": "string"

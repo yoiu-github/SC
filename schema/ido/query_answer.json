@@ -150,34 +150,14 @@
     {
       "type": "object",
       "required": [
-        "whitelist_amount"
-      ],
-      "properties": {
-        "whitelist_amount": {
-          "type": "object",
-          "required": [
-            "amount"
-          ],
-          "properties": {
-            "amount": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "whitelist"
       ],
       "properties": {
         "whitelist": {
           "type": "object",
           "required": [
-            "addresses"
+            "addresses",
+            "amount"
           ],
           "properties": {
             "addresses": {
@@ -185,6 +165,11 @@
               "items": {
                 "$ref": "#/definitions/HumanAddr"
               }
+            },
+            "amount": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
             }
           }
         }
@@ -238,62 +223,26 @@
     {
       "type": "object",
       "required": [
-        "purchases_amount"
-      ],
-      "properties": {
-        "purchases_amount": {
-          "type": "object",
-          "required": [
-            "amount"
-          ],
-          "properties": {
-            "amount": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "purchases"
       ],
       "properties": {
         "purchases": {
           "type": "object",
           "required": [
+            "amount",
             "purchases"
-          ],
-          "properties": {
-            "purchases": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PurchaseAnswer"
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "archived_purchases_amount"
-      ],
-      "properties": {
-        "archived_purchases_amount": {
-          "type": "object",
-          "required": [
-            "amount"
           ],
           "properties": {
             "amount": {
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "purchases": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PurchaseAnswer"
+              }
             }
           }
         }
@@ -308,9 +257,15 @@
         "archived_purchases": {
           "type": "object",
           "required": [
+            "amount",
             "purchases"
           ],
           "properties": {
+            "amount": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "purchases": {
               "type": "array",
               "items": {
