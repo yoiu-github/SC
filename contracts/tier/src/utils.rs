@@ -121,8 +121,8 @@ pub fn normalize_tier(tier: u8, length: u8) -> u8 {
         return 0;
     }
 
-    return length
+    length
         .checked_add(1)
         .and_then(|v| v.checked_sub(tier))
-        .unwrap();
+        .unwrap()
 }

@@ -115,11 +115,15 @@ mod tests {
         let owner = HumanAddr::from("owner");
         let validator = HumanAddr::from("validator");
 
-        let config = Config {
-            status: ContractStatus::Active as u8,
+        let mut config = Config {
+            status: ContractStatus::Stopped as u8,
             admin: deps.api.canonical_address(&owner).unwrap(),
             validator,
         };
+        assert!(config.assert_contract_active().is_err());
+
+        config.status = ContractStatus::Active as u8;
+        assert!(config.assert_contract_active().is_ok());
 
         config.save(&mut deps.storage).unwrap();
 

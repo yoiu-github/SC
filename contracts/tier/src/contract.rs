@@ -115,12 +115,12 @@ pub fn try_change_admin<S: Storage, A: Api, Q: Querier>(
     config.admin = canonical_admin;
     config.save(&mut deps.storage)?;
 
-    let status = to_binary(&HandleAnswer::ChangeAdmin {
+    let answer = to_binary(&HandleAnswer::ChangeAdmin {
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
-        data: Some(status),
+        data: Some(answer),
         ..Default::default()
     })
 }
@@ -272,13 +272,13 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
     let withdraw_msg = StakingMsg::Undelegate { validator, amount };
     let msg = CosmosMsg::Staking(withdraw_msg);
 
-    let status = to_binary(&HandleAnswer::Withdraw {
+    let answer = to_binary(&HandleAnswer::Withdraw {
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
         messages: vec![msg],
-        data: Some(status),
+        data: Some(answer),
         ..Default::default()
     })
 }
@@ -321,13 +321,13 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
     }
 
     if withdraw_amount == 0 {
-        let amswer = to_binary(&HandleAnswer::Claim {
+        let answer = to_binary(&HandleAnswer::Claim {
             amount: Uint128(0),
             status: ResponseStatus::Success,
         })?;
 
         return Ok(HandleResponse {
-            data: Some(amswer),
+            data: Some(answer),
             ..Default::default()
         });
     }
@@ -339,19 +339,19 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
 
     let send_msg = BankMsg::Send {
         from_address: env.contract.address,
-        to_address: recipient.clone(),
+        to_address: recipient,
         amount: coins(withdraw_amount, USCRT),
     };
 
     let msg = CosmosMsg::Bank(send_msg);
-    let amswer = to_binary(&HandleAnswer::Claim {
+    let answer = to_binary(&HandleAnswer::Claim {
         amount: withdraw_amount.into(),
         status: ResponseStatus::Success,
     })?;
 
     Ok(HandleResponse {
         messages: vec![msg],
-        data: Some(amswer),
+        data: Some(answer),
         ..Default::default()
     })
 }
@@ -757,6 +757,63 @@ mod tests {
         assert_eq!(config.admin, canonical_alice);
         assert_eq!(config.validator, validator);
         assert_eq!(config, config_info(&deps));
+    }
+
+    #[test]
+    fn change_admin() {
+        let mut deps = init_with_default();
+        let admin = HumanAddr::from("admin");
+        let alice = HumanAddr::from("alice");
+        let new_admin = HumanAddr::from("new_admin");
+
+        let env = mock_env(&alice, &[]);
+        let change_admin_msg = HandleMsg::ChangeAdmin {
+            admin: new_admin.clone(),
+            padding: None,
+        };
+
+        let response = handle(&mut deps, env, change_admin_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(&admin, &[]);
+        handle(&mut deps, env, change_admin_msg).unwrap();
+
+        let config = Config::load(&deps.storage).unwrap();
+        let new_admin_canonical = deps.api.canonical_address(&new_admin).unwrap();
+        assert_eq!(config.admin, new_admin_canonical);
+    }
+
+    #[test]
+    fn change_status() {
+        let mut deps = init_with_default();
+        let admin = HumanAddr::from("admin");
+        let alice = HumanAddr::from("alice");
+
+        let env = mock_env(&alice, &[]);
+        let change_admin_msg = HandleMsg::ChangeStatus {
+            status: ContractStatus::Stopped,
+            padding: None,
+        };
+
+        let response = handle(&mut deps, env, change_admin_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(&admin, &[]);
+        handle(&mut deps, env.clone(), change_admin_msg).unwrap();
+
+        let config = Config::load(&deps.storage).unwrap();
+        assert_eq!(config.status, ContractStatus::Stopped as u8);
+
+        let change_admin_msg = HandleMsg::ChangeStatus {
+            status: ContractStatus::Active,
+            padding: None,
+        };
+
+        handle(&mut deps, env, change_admin_msg).unwrap();
+        let config = Config::load(&deps.storage).unwrap();
+        assert_eq!(config.status, ContractStatus::Active as u8);
     }
 
     #[test]
