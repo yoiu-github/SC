@@ -22,5 +22,4 @@ serde = "1.0.143"
 
 [dev-dependencies]
 rand = "0.8.5"
-tier = { path = "../tier" }
 cosmwasm-schema = "0.10.1"

@@ -1,8 +1,7 @@
+use crate::msg::{PurchaseAnswer, QueryAnswer};
 use cosmwasm_std::{Api, CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
-
-use crate::msg::{PurchaseAnswer, QueryAnswer};
 
 static CONFIG_KEY: Item<Config> = Item::new(b"config");
 static PURCHASES: DequeStore<Purchase> = DequeStore::new(b"purchases");
@@ -50,7 +49,8 @@ pub fn ido_list_owned_by(owner: &CanonicalAddr) -> AppendStore<u32> {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Config {
-    pub owner: CanonicalAddr,
+    pub admin: CanonicalAddr,
+    pub status: u8,
     pub tier_contract: CanonicalAddr,
     pub tier_contract_hash: String,
     pub nft_contract: CanonicalAddr,
@@ -71,7 +71,7 @@ impl Config {
     }
 
     pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
-        let owner = api.human_address(&self.owner)?;
+        let owner = api.human_address(&self.admin)?;
         let tier_contract = api.human_address(&self.tier_contract)?;
         let nft_contract = api.human_address(&self.nft_contract)?;
         let token_contract = api.human_address(&self.token_contract)?;
@@ -129,7 +129,7 @@ impl UserInfo {
 pub struct Ido {
     #[serde(skip)]
     id: Option<u32>,
-    pub owner: CanonicalAddr,
+    pub admin: CanonicalAddr,
     pub start_time: u64,
     pub end_time: u64,
     pub token_contract: CanonicalAddr,
@@ -199,7 +199,7 @@ impl Ido {
     }
 
     pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
-        let owner = api.human_address(&self.owner)?;
+        let owner = api.human_address(&self.admin)?;
         let token_contract = api.human_address(&self.token_contract)?;
 
         Ok(QueryAnswer::IdoInfo {

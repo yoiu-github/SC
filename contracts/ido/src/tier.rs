@@ -14,7 +14,7 @@ use std::cmp::max;
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TierContractQuery {
-    TierOf { address: HumanAddr },
+    UserInfo { address: HumanAddr },
 }
 
 impl Query for TierContractQuery {
@@ -24,7 +24,7 @@ impl Query for TierContractQuery {
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TierReponse {
-    TierOf { tier: u8 },
+    UserInfo { tier: u8 },
 }
 
 fn find_tier_in_metadata(metadata: Metadata) -> u8 {
@@ -102,9 +102,9 @@ fn get_tier_from_tier_contract<S: Storage, A: Api, Q: Querier>(
     config: &Config,
 ) -> StdResult<u8> {
     let tier_contract = deps.api.human_address(&config.tier_contract)?;
-    let tier_of = TierContractQuery::TierOf { address };
+    let user_info = TierContractQuery::UserInfo { address };
 
-    let TierReponse::TierOf { tier } = tier_of.query(
+    let TierReponse::UserInfo { tier } = user_info.query(
         &deps.querier,
         config.tier_contract_hash.clone(),
         tier_contract,

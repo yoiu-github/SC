@@ -9,6 +9,13 @@ pub enum ResponseStatus {
     Failure,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractStatus {
+    Active,
+    Stopped,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NftToken {
     pub token_id: String,
@@ -18,6 +25,7 @@ pub struct NftToken {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
+    pub admin: Option<HumanAddr>,
     pub max_payments: Vec<Uint128>,
     pub lock_periods: Vec<u64>,
     pub tier_contract: HumanAddr,
@@ -53,6 +61,14 @@ impl InitMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
+    ChangeAdmin {
+        admin: HumanAddr,
+        padding: Option<String>,
+    },
+    ChangeStatus {
+        status: ContractStatus,
+        padding: Option<String>,
+    },
     StartIdo {
         start_time: u64,
         end_time: u64,
@@ -96,6 +112,12 @@ pub enum HandleMsg {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
+    ChangeAdmin {
+        status: ResponseStatus,
+    },
+    ChangeStatus {
+        status: ResponseStatus,
+    },
     StartIdo {
         ido_id: u32,
         whitelist_size: u32,
@@ -132,9 +154,6 @@ pub enum QueryMsg {
     IdoInfo {
         ido_id: u32,
     },
-    WhitelistAmount {
-        ido_id: Option<u32>,
-    },
     Whitelist {
         ido_id: Option<u32>,
         start: u32,
@@ -148,19 +167,11 @@ pub enum QueryMsg {
         start: u32,
         limit: u32,
     },
-    PurchasesAmount {
-        ido_id: u32,
-        address: HumanAddr,
-    },
     Purchases {
         ido_id: u32,
         address: HumanAddr,
         start: u32,
         limit: u32,
-    },
-    ArchivedPurchasesAmount {
-        ido_id: u32,
-        address: HumanAddr,
     },
     ArchivedPurchases {
         ido_id: u32,
@@ -211,11 +222,9 @@ pub enum QueryAnswer {
         total_payment: Uint128,
         withdrawn: bool,
     },
-    WhitelistAmount {
-        amount: u32,
-    },
     Whitelist {
         addresses: Vec<HumanAddr>,
+        amount: u32,
     },
     IdoAmountOwnedBy {
         amount: u32,
@@ -223,17 +232,13 @@ pub enum QueryAnswer {
     IdoListOwnedBy {
         ido_ids: Vec<u32>,
     },
-    PurchasesAmount {
-        amount: u32,
-    },
     Purchases {
         purchases: Vec<PurchaseAnswer>,
-    },
-    ArchivedPurchasesAmount {
         amount: u32,
     },
     ArchivedPurchases {
         purchases: Vec<PurchaseAnswer>,
+        amount: u32,
     },
     UserInfo {
         total_payment: Uint128,
