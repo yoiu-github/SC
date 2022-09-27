@@ -142,9 +142,6 @@ pub fn get_tier_index<S: Storage, A: Api, Q: Querier>(
         Ok(0)
     } else {
         let max_tier = config.max_payments.len() as u8;
-        Ok(max_tier
-            .checked_sub(tier)
-            .and_then(|t| t.checked_add(1))
-            .unwrap())
+        Ok(max_tier.checked_sub(tier).unwrap())
     }
 }
