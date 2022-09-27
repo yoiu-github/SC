@@ -21,28 +21,26 @@ export class TierContract extends BaseContract {
       user_info: { address: client.address },
     };
 
-    const userInfo = await client.query.compute
-      .queryContract({
-        contractAddress: this.contractInfo.address,
-        codeHash: this.contractInfo.codeHash,
-        query: queryUserInfo,
-      });
-
-    return userInfo as Tier.QueryAnswer.UserInfo;
+    return await super.query(client, queryUserInfo);
   }
 
   async config(
     client: SecretNetworkClient,
   ): Promise<Tier.QueryAnswer.Config> {
     const queryConfig: Tier.QueryMsg.Config = { config: {} };
-    const config: Tier.QueryAnswer.Config = await client.query.compute
-      .queryContract({
-        contractAddress: this.contractInfo.address,
-        codeHash: this.contractInfo.codeHash,
-        query: queryConfig,
-      });
+    return await super.query(client, queryConfig);
+  }
 
-    return config as Tier.QueryAnswer.Config;
+  async withdrawals(
+    client: SecretNetworkClient,
+    start?: number,
+    limit?: number,
+  ): Promise<Tier.QueryAnswer.Withdrawals> {
+    const queryWithdrawals: Tier.QueryMsg.Withdrawals = {
+      withdrawals: { address: client.address, start, limit },
+    };
+
+    return await super.query(client, queryWithdrawals);
   }
 
   async changeStatus(
@@ -57,6 +55,20 @@ export class TierContract extends BaseContract {
 
     const response = await broadcastWithCheck(client, [changeStatusMsg]);
     return response[0] as Tier.HandleAnswer.ChangeStatus;
+  }
+
+  async redelegate(
+    client: SecretNetworkClient,
+    validator: string,
+  ): Promise<Tier.HandleAnswer.Redelegate> {
+    const changeStatusMsg = getExecuteMsg<Tier.HandleMsg.Redelegate>(
+      this.contractInfo,
+      client.address,
+      { redelegate: { validator_address: validator } },
+    );
+
+    const response = await broadcastWithCheck(client, [changeStatusMsg]);
+    return response[0] as Tier.HandleAnswer.Redelegate;
   }
 
   async deposit(
@@ -97,32 +109,22 @@ export class TierContract extends BaseContract {
     client: SecretNetworkClient,
     tier: number,
   ) {
-    const queryUserInfo: Tier.QueryMsg.UserInfo = {
-      user_info: { address: client.address },
-    };
-
-    const userInfoResponse: Tier.QueryAnswer.UserInfo = await client.query
-      .compute
-      .queryContract({
-        contractAddress: this.contractInfo.address,
-        codeHash: this.contractInfo.codeHash,
-        query: queryUserInfo,
-      });
-
-    const currentTier = userInfoResponse.user_info.tier;
+    const userInfo = await this.userInfo(client);
+    const currentTier = userInfo.user_info.tier;
     if (currentTier == tier) {
       return;
     }
 
-    if (currentTier > tier) {
+    if (currentTier != 0 && (currentTier < tier || tier == 0)) {
       throw new Error("Tier cannot be decreased");
     }
 
     const config = await this.config(client);
-    const tierInfo = config.config.tier_list[tier - 1];
+    const maxTier = config.config.tier_list.length;
+    const tierInfo = config.config.tier_list[maxTier - tier];
     const tierExpectedDeposit = Number.parseInt(tierInfo.deposit);
 
-    const currentDeposit = Number.parseInt(userInfoResponse.user_info.deposit);
+    const currentDeposit = Number.parseInt(userInfo.user_info.deposit);
     const amount = tierExpectedDeposit - currentDeposit;
 
     await this.deposit(client, amount);

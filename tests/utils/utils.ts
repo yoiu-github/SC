@@ -6,7 +6,7 @@ import {
   SecretNetworkClient,
   Wallet,
 } from "secretjs";
-import { ContractDeployInfo } from ".";
+import { ContractDeployInfo } from "./baseContract";
 
 export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,7 +14,7 @@ export function delay(ms: number) {
 
 export function waitFor(timestamp: number) {
   const currentTimestamp = currentTime();
-  const waitTime = timestamp - currentTimestamp;
+  const waitTime = timestamp - currentTimestamp + 1;
   return new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
 }
 
@@ -55,8 +55,9 @@ export async function airdrop(
 
 export async function getBalance(
   client: SecretNetworkClient,
-  address: string,
+  address?: string,
 ): Promise<number> {
+  address = address || client.address;
   const response = await client.query.bank.balance({ address, denom: "uscrt" });
   return response.balance && Number.parseInt(response.balance.amount) || 0;
 }

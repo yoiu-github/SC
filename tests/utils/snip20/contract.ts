@@ -68,10 +68,6 @@ export class Snip20Contract extends BaseContract {
       balance: { address: client.address, key },
     };
 
-    return client.query.compute.queryContract({
-      contractAddress: this.contractInfo.address,
-      codeHash: this.contractInfo.codeHash,
-      query,
-    });
+    return await super.query(client, query);
   }
 }

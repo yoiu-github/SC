@@ -1,5 +1,11 @@
 import * as fs from "fs";
-import { CodeInfoResponse, JsonLog, SecretNetworkClient } from "secretjs";
+import {
+  CodeInfoResponse,
+  Coin,
+  JsonLog,
+  MsgExecuteContract,
+  SecretNetworkClient,
+} from "secretjs";
 
 export type ContractDeployInfo = {
   address: string;
@@ -12,6 +18,17 @@ export class BaseContract {
 
   constructor(label: string) {
     this.label = label;
+  }
+
+  async query<T extends object, R extends object>(
+    client: SecretNetworkClient,
+    query: T,
+  ): Promise<R> {
+    return await client.query.compute.queryContract({
+      contractAddress: this.contractInfo.address,
+      codeHash: this.contractInfo.codeHash,
+      query,
+    });
   }
 
   private async getContractInfo(

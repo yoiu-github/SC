@@ -43,13 +43,15 @@ export class IdoContract extends BaseContract {
     client: SecretNetworkClient,
     idoId: number,
     amount: number,
+    price: number,
     token_id?: string,
   ): Promise<Ido.HandleAnswer.BuyTokens> {
+    const sscrtAmount = amount * price;
     const depositMsg = getExecuteMsg<Snip20.HandleMsg.Deposit>(
       this.sscrtContract,
       client.address,
       { deposit: {} },
-      [{ denom: "uscrt", amount: amount.toString() }],
+      [{ denom: "uscrt", amount: sscrtAmount.toString() }],
     );
 
     const increaseAllowanceMsg = getExecuteMsg<
@@ -60,7 +62,7 @@ export class IdoContract extends BaseContract {
       {
         increase_allowance: {
           spender: this.contractInfo.address,
-          amount: amount.toString(),
+          amount: sscrtAmount.toString(),
         },
       },
     );
@@ -139,5 +141,55 @@ export class IdoContract extends BaseContract {
 
     const response = await broadcastWithCheck(client, [recvTokensMsg]);
     return response[0] as Ido.HandleAnswer.RecvTokens;
+  }
+
+  async idoInfo(
+    client: SecretNetworkClient,
+    idoId: number,
+  ): Promise<Ido.QueryAnswer.IdoInfo> {
+    const query: Ido.QueryMsg.IdoInfo = { ido_info: { ido_id: idoId } };
+    return await super.query(client, query);
+  }
+
+  async purchases(
+    client: SecretNetworkClient,
+    idoId: number,
+    start = 0,
+    limit = 50,
+  ): Promise<Ido.QueryAnswer.Purchases> {
+    const query: Ido.QueryMsg.Purchases = {
+      purchases: { address: client.address, ido_id: idoId, start, limit },
+    };
+
+    return await super.query(client, query);
+  }
+
+  async archivedPurchases(
+    client: SecretNetworkClient,
+    idoId: number,
+    start = 0,
+    limit = 50,
+  ): Promise<Ido.QueryAnswer.Purchases> {
+    const query: Ido.QueryMsg.ArchivedPurchases = {
+      archived_purchases: {
+        address: client.address,
+        ido_id: idoId,
+        start,
+        limit,
+      },
+    };
+
+    return await super.query(client, query);
+  }
+
+  async userInfo(
+    client: SecretNetworkClient,
+    idoId?: number,
+  ): Promise<Ido.QueryAnswer.UserInfo> {
+    const query: Ido.QueryMsg.UserInfo = {
+      user_info: { address: client.address, ido_id: idoId },
+    };
+
+    return await super.query(client, query);
   }
 }
