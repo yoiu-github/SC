@@ -105,7 +105,6 @@ describe("IDO", () => {
   it("Start IDO", async () => {
     user = await newClient();
     await airdrop(user);
-    await idoContract.addWhitelist(admin, user.address);
 
     idoOwner = await newClient();
     await airdrop(idoOwner);
@@ -151,12 +150,12 @@ describe("IDO", () => {
     const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
     await waitFor(idoInfo.ido_info.start_time);
 
-    const notWhitelistedUser = await newClient();
-    await airdrop(notWhitelistedUser);
+    const response = await idoContract.inWhitelist(user, idoId);
+    assert.ok(!response.in_whitelist.in_whitelist);
 
     await assert.rejects(async () => {
       await idoContract.buyTokens(
-        notWhitelistedUser,
+        user,
         idoId,
         1,
         price,
@@ -165,6 +164,10 @@ describe("IDO", () => {
   });
 
   it("Buy tokens with Tier = 0", async () => {
+    await idoContract.addWhitelist(admin, user.address);
+    const whitelistResponse = await idoContract.inWhitelist(user, idoId);
+    assert.ok(whitelistResponse.in_whitelist.in_whitelist);
+
     const maxPayments = Number.parseInt(idoPayments[0]);
     await checkMaxDeposit(
       user,
@@ -265,6 +268,7 @@ describe("IDO", () => {
       0,
     );
 
+    const purchasesBeforeReceive = await idoContract.purchases(user, idoId);
     await waitFor(maxUnlockTime);
 
     const initialBalance = await snip20Contract.getBalance(user);
@@ -275,6 +279,16 @@ describe("IDO", () => {
       balance.balance.amount,
       Number.parseInt(initialBalance.balance.amount) +
         Number.parseInt(idoPayments[4]) / price,
+    );
+
+    const purchases = await idoContract.purchases(user, idoId);
+    assert.equal(purchases.purchases.amount, 0);
+    assert.equal(purchases.purchases.purchases.length, 0);
+
+    const archivedPurchases = await idoContract.archivedPurchases(user, idoId);
+    assert.deepEqual(
+      archivedPurchases.archived_purchases,
+      purchasesBeforeReceive.purchases,
     );
   });
 

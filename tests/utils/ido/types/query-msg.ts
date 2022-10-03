@@ -12,8 +12,9 @@ export type IdoInfo = {
   };
 };
 
-export type WhitelistAmount = {
-  whitelist_amount: {
+export type InWhitelist = {
+  in_whitelist: {
+    address: HumanAddr;
     ido_id?: number | null;
   };
 };

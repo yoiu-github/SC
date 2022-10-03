@@ -6,5 +6,4 @@ export interface InitMsg {
   lock_periods: number[];
   owner?: HumanAddr | null;
   validator: HumanAddr;
-  [k: string]: unknown;
 }

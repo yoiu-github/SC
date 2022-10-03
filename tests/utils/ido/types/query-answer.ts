@@ -34,6 +34,12 @@ export type IdoInfo = {
   };
 };
 
+export type InWhitelist = {
+  in_whitelist: {
+    in_whitelist: boolean;
+  };
+};
+
 export type Whitelist = {
   whitelist: {
     addresses: HumanAddr[];

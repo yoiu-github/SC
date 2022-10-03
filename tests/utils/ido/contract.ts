@@ -39,6 +39,17 @@ export class IdoContract extends BaseContract {
     return response[0] as Ido.HandleAnswer.WhitelistAdd;
   }
 
+  async inWhitelist(
+    client: SecretNetworkClient,
+    idoId?: number,
+  ): Promise<Ido.QueryAnswer.InWhitelist> {
+    const query: Ido.QueryMsg.InWhitelist = {
+      in_whitelist: { address: client.address, ido_id: idoId },
+    };
+
+    return await super.query(client, query);
+  }
+
   async buyTokens(
     client: SecretNetworkClient,
     idoId: number,
@@ -169,7 +180,7 @@ export class IdoContract extends BaseContract {
     idoId: number,
     start = 0,
     limit = 50,
-  ): Promise<Ido.QueryAnswer.Purchases> {
+  ): Promise<Ido.QueryAnswer.ArchivedPurchases> {
     const query: Ido.QueryMsg.ArchivedPurchases = {
       archived_purchases: {
         address: client.address,
