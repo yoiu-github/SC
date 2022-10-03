@@ -48,6 +48,33 @@
     {
       "type": "object",
       "required": [
+        "in_whitelist"
+      ],
+      "properties": {
+        "in_whitelist": {
+          "type": "object",
+          "required": [
+            "address"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "ido_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "whitelist"
       ],
       "properties": {

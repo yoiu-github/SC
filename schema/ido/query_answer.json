@@ -150,6 +150,25 @@
     {
       "type": "object",
       "required": [
+        "in_whitelist"
+      ],
+      "properties": {
+        "in_whitelist": {
+          "type": "object",
+          "required": [
+            "in_whitelist"
+          ],
+          "properties": {
+            "in_whitelist": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
         "whitelist"
       ],
       "properties": {

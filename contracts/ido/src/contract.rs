@@ -7,7 +7,7 @@ use crate::{
     tier::get_tier_index,
     utils::{
         assert_admin, assert_contract_active, assert_ido_admin, assert_whitelist_authority,
-        assert_whitelisted,
+        assert_whitelisted, in_whitelist,
     },
 };
 use cosmwasm_std::{
@@ -610,6 +610,10 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
         QueryMsg::IdoInfo { ido_id } => {
             let ido = Ido::load(&deps.storage, ido_id)?;
             ido.to_answer(&deps.api)?
+        }
+        QueryMsg::InWhitelist { address, ido_id } => {
+            let in_whitelist = in_whitelist(deps, &address, ido_id)?;
+            QueryAnswer::InWhitelist { in_whitelist }
         }
         QueryMsg::Whitelist {
             ido_id,

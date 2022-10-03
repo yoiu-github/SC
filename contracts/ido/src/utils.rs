@@ -61,24 +61,36 @@ pub fn assert_whitelist_authority<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
-pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
+pub fn in_whitelist<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: &HumanAddr,
     ido_id: Option<u32>,
-) -> StdResult<()> {
+) -> StdResult<bool> {
     let canonical_address = deps.api.canonical_address(address)?;
 
     if let Some(ido_id) = ido_id {
         let ido_whitelist = state::ido_whitelist(ido_id);
         if ido_whitelist.contains(&deps.storage, &canonical_address) {
-            return Ok(());
+            return Ok(true);
         }
     }
 
     let common_whitelist = state::common_whitelist();
     if common_whitelist.contains(&deps.storage, &canonical_address) {
-        return Ok(());
+        return Ok(true);
     }
 
-    Err(StdError::generic_err("Not in whitelist"))
+    Ok(false)
+}
+
+pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    address: &HumanAddr,
+    ido_id: Option<u32>,
+) -> StdResult<()> {
+    if in_whitelist(deps, address, ido_id)? {
+        Ok(())
+    } else {
+        Err(StdError::generic_err("Not in whitelist"))
+    }
 }

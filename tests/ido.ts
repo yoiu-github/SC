@@ -8,6 +8,7 @@ import {
   Snip20,
   Snip721,
   Tier,
+  waitFor,
 } from "./utils";
 import * as assert from "assert";
 
@@ -53,7 +54,9 @@ describe("IDO", () => {
   const tierLockPeriods = [30, 40, 50, 60];
 
   const idoPayments = ["1000", "2000", "3000", "5000", "10000"];
-  const idoLockPeriods = [20, 30, 40, 50, 60];
+  const idoLockPeriods = [115, 90, 75, 50, 25];
+  const idoTotalAmount = 20000;
+  const tokensPerTier = ["10", "20", "30", "40", "19900"];
 
   let idoContract: Ido.IdoContract;
   let snip20Contract: Snip20.Snip20Contract;
@@ -115,12 +118,12 @@ describe("IDO", () => {
     const time = currentTime();
     const startIdoMsg: Ido.HandleMsg.StartIdo = {
       start_ido: {
-        start_time: time,
+        start_time: time + 20,
         end_time: time + 10_000,
         token_contract: snip20Contract.contractInfo.address,
         token_contract_hash: snip20Contract.contractInfo.codeHash,
         price: price.toString(),
-        total_amount: "20000",
+        total_amount: idoTotalAmount.toString(),
       },
     };
 
@@ -131,6 +134,34 @@ describe("IDO", () => {
     );
 
     idoId = response.start_ido.ido_id;
+  });
+
+  it("Try to buy tokens before IDO starts", async () => {
+    await assert.rejects(async () => {
+      await idoContract.buyTokens(
+        user,
+        idoId,
+        1,
+        price,
+      );
+    });
+  });
+
+  it("Try to buy tokens not being whitelisted", async () => {
+    const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
+    await waitFor(idoInfo.ido_info.start_time);
+
+    const notWhitelistedUser = await newClient();
+    await airdrop(notWhitelistedUser);
+
+    await assert.rejects(async () => {
+      await idoContract.buyTokens(
+        notWhitelistedUser,
+        idoId,
+        1,
+        price,
+      );
+    });
   });
 
   it("Buy tokens with Tier = 0", async () => {
@@ -218,6 +249,34 @@ describe("IDO", () => {
       );
     });
   }
+
+  it("Try to receive tokens before lock period", async () => {
+    const initialBalance = await snip20Contract.getBalance(user);
+    await idoContract.recvTokens(user, idoId);
+
+    const balance = await snip20Contract.getBalance(user);
+    assert.equal(balance.balance.amount, initialBalance.balance.amount);
+  });
+
+  it("Receive tokens after lock period", async () => {
+    const response = await idoContract.purchases(user, idoId);
+    const maxUnlockTime = response.purchases.purchases.reduce(
+      (max, value) => Math.max(max, value.unlock_time),
+      0,
+    );
+
+    await waitFor(maxUnlockTime);
+
+    const initialBalance = await snip20Contract.getBalance(user);
+    await idoContract.recvTokens(user, idoId);
+
+    const balance = await snip20Contract.getBalance(user);
+    assert.equal(
+      balance.balance.amount,
+      Number.parseInt(initialBalance.balance.amount) +
+        Number.parseInt(idoPayments[4]) / price,
+    );
+  });
 
   it("Buy tokens with NFT (private metadata)", async () => {
     user = await newClient();
@@ -311,4 +370,64 @@ describe("IDO", () => {
       tokenId,
     );
   });
+
+  it("Start IDO with specified tokens per tier", async () => {
+    snip20Contract = new Snip20.Snip20Contract("another Snip20");
+    await snip20Contract.init(admin);
+    await snip20Contract.mint(admin, idoOwner.address);
+
+    const time = currentTime();
+    const startIdoMsg: Ido.HandleMsg.StartIdo = {
+      start_ido: {
+        start_time: time,
+        end_time: time + 10_000,
+        token_contract: snip20Contract.contractInfo.address,
+        token_contract_hash: snip20Contract.contractInfo.codeHash,
+        price: price.toString(),
+        total_amount: idoTotalAmount.toString(),
+        tokens_per_tier: tokensPerTier,
+      },
+    };
+
+    const response = await idoContract.startIdo(
+      idoOwner,
+      startIdoMsg,
+      snip20Contract.contractInfo,
+    );
+
+    idoId = response.start_ido.ido_id;
+  });
+
+  it("Buy tokens with Tier = 0", async () => {
+    const maxPayments = Number.parseInt(tokensPerTier[0]) * price;
+    await checkMaxDeposit(
+      user,
+      idoContract,
+      idoId,
+      price,
+      maxPayments,
+    );
+  });
+
+  for (let tier = 4; tier >= 1; tier--) {
+    it(`Buy tokens with Tier = ${tier}`, async () => {
+      await tierContract.setTier(user, tier);
+      const tierIndex = idoPayments.length - tier;
+
+      let maxPayments: number;
+      if (tier == 1) {
+        maxPayments = Number.parseInt(idoPayments[tierIndex]) - 1000;
+      } else {
+        maxPayments = Number.parseInt(tokensPerTier[tierIndex]) * price;
+      }
+
+      await checkMaxDeposit(
+        user,
+        idoContract,
+        idoId,
+        price,
+        maxPayments,
+      );
+    });
+  }
 });

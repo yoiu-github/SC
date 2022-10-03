@@ -154,6 +154,10 @@ pub enum QueryMsg {
     IdoInfo {
         ido_id: u32,
     },
+    InWhitelist {
+        address: HumanAddr,
+        ido_id: Option<u32>,
+    },
     Whitelist {
         ido_id: Option<u32>,
         start: u32,
@@ -221,6 +225,9 @@ pub enum QueryAnswer {
         total_tokens_amount: Uint128,
         total_payment: Uint128,
         withdrawn: bool,
+    },
+    InWhitelist {
+        in_whitelist: bool,
     },
     Whitelist {
         addresses: Vec<HumanAddr>,
