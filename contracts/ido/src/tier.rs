@@ -1,8 +1,4 @@
-use crate::{
-    contract::BLOCK_SIZE,
-    msg::NftToken,
-    state::{self, Config},
-};
+use crate::{contract::BLOCK_SIZE, msg::NftToken, state::Config};
 use cosmwasm_std::{Api, Extern, HumanAddr, Querier, StdResult, Storage};
 use secret_toolkit_snip721::{
     all_nft_info_query, private_metadata_query, Extension, Metadata, ViewerInfo,
@@ -116,20 +112,8 @@ fn get_tier_from_tier_contract<S: Storage, A: Api, Q: Querier>(
 pub fn get_tier_index<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
-    ido_id: u32,
     token: Option<NftToken>,
 ) -> StdResult<u8> {
-    let canonical_address = deps.api.canonical_address(&address)?;
-
-    // If address not in whitelist, tier = 0
-    let common_whitelist = state::common_whitelist();
-    if !common_whitelist.contains(&deps.storage, &canonical_address) {
-        let ido_whitelist = state::ido_whitelist(ido_id);
-        if !ido_whitelist.contains(&deps.storage, &canonical_address) {
-            return Ok(0);
-        }
-    }
-
     let config = Config::load(&deps.storage)?;
     let from_nft_contract = token
         .map(|token| get_tier_from_nft_contract(deps, &address, &config, token))

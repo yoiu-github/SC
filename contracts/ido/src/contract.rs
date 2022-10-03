@@ -5,7 +5,10 @@ use crate::{
     },
     state::{self, Config, Ido, Purchase},
     tier::get_tier_index,
-    utils::{assert_admin, assert_contract_active, assert_ido_admin},
+    utils::{
+        assert_admin, assert_contract_active, assert_ido_admin, assert_whitelist_authority,
+        assert_whitelisted,
+    },
 };
 use cosmwasm_std::{
     to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
@@ -243,6 +246,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     token: Option<NftToken>,
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
+    assert_whitelisted(deps, &env.message.sender, Some(ido_id))?;
 
     let mut ido = Ido::load(&deps.storage, ido_id)?;
 
@@ -260,7 +264,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     }
 
     let sender = env.message.sender;
-    let tier = get_tier_index(deps, sender.clone(), ido_id, token)?;
+    let tier = get_tier_index(deps, sender.clone(), token)?;
     let remaining_amount = ido.remaining_tokens_per_tier(tier);
 
     if remaining_amount == 0 {
@@ -538,12 +542,7 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
     addresses: Vec<HumanAddr>,
     ido_id: Option<u32>,
 ) -> HandleResult {
-    if let Some(ido_id) = ido_id {
-        assert_ido_admin(deps, &env.message.sender, ido_id)?;
-        assert_contract_active(&deps.storage)?;
-    } else {
-        assert_admin(deps, &env.message.sender)?;
-    }
+    assert_whitelist_authority(deps, &env.message.sender, ido_id)?;
 
     let whitelist = ido_id
         .map(state::ido_whitelist)
@@ -571,12 +570,7 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     addresses: Vec<HumanAddr>,
     ido_id: Option<u32>,
 ) -> HandleResult {
-    if let Some(ido_id) = ido_id {
-        assert_ido_admin(deps, &env.message.sender, ido_id)?;
-        assert_contract_active(&deps.storage)?;
-    } else {
-        assert_admin(deps, &env.message.sender)?;
-    }
+    assert_whitelist_authority(deps, &env.message.sender, ido_id)?;
 
     let whitelist = ido_id
         .map(state::ido_whitelist)
