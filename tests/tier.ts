@@ -167,15 +167,22 @@ describe("Tier", () => {
     assert.equal(withdrawals.withdrawals.amount, 1);
     assert.equal(withdrawal.amount, 1000);
 
-    const delegation = await user.query.staking.delegation({
-      delegatorAddr: tierContract.contractInfo.address,
-      validatorAddr: validator,
-    });
+    let currentDelegation: number;
 
-    assert.equal(
-      delegation.delegationResponse?.balance?.amount,
-      initialDelegation,
-    );
+    try {
+      const delegation = await user.query.staking.delegation({
+        delegatorAddr: tierContract.contractInfo.address,
+        validatorAddr: validator,
+      });
+
+      currentDelegation = Number.parseInt(
+        delegation.delegationResponse?.balance?.amount || "0",
+      );
+    } catch {
+      currentDelegation = 0;
+    }
+
+    assert.equal(currentDelegation, initialDelegation);
   });
 
   it("Deposit after withdraw", async () => {
