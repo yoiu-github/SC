@@ -434,10 +434,7 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
     })?;
 
     if recv_amount == 0 {
-        return Ok(HandleResponse {
-            data: Some(answer),
-            ..Default::default()
-        });
+        return Err(StdError::generic_err("Nothing to receive"));
     }
 
     let all_user_infos = state::user_info();
@@ -637,13 +634,6 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
 
             QueryAnswer::Whitelist { addresses, amount }
         }
-        QueryMsg::IdoAmountOwnedBy { address } => {
-            let canonical_address = deps.api.canonical_address(&address)?;
-            let ido_list = state::ido_list_owned_by(&canonical_address);
-            let amount = ido_list.get_len(&deps.storage)?;
-
-            QueryAnswer::IdoAmountOwnedBy { amount }
-        }
         QueryMsg::IdoListOwnedBy {
             address,
             start,
@@ -651,9 +641,10 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
         } => {
             let canonical_address = deps.api.canonical_address(&address)?;
             let ido_list = state::ido_list_owned_by(&canonical_address);
+            let amount = ido_list.get_len(&deps.storage)?;
             let ido_ids = ido_list.paging(&deps.storage, start, limit)?;
 
-            QueryAnswer::IdoListOwnedBy { ido_ids }
+            QueryAnswer::IdoListOwnedBy { ido_ids, amount }
         }
         QueryMsg::Purchases {
             ido_id,
@@ -1264,7 +1255,15 @@ mod test {
         let mut rng = thread_rng();
         let mut purchases = Vec::with_capacity(amount);
 
-        for _ in 0..purchases.capacity() {
+        let purchase = Purchase {
+            timestamp: 0,
+            tokens_amount: rng.gen_range(0..10),
+            unlock_time: rng.gen_range(1..500),
+        };
+
+        purchases.push(purchase);
+
+        for _ in 1..purchases.capacity() {
             let purchase = Purchase {
                 timestamp: 0,
                 tokens_amount: rng.gen_range(0..10),
@@ -1359,16 +1358,9 @@ mod test {
         let active_ido_list = state::active_ido_list(&canonical_user);
         assert!(active_ido_list.contains(&deps.storage, &0));
 
-        let response = handle(&mut deps, env.clone(), recv_tokens_msg.clone()).unwrap();
-        assert!(response.messages.is_empty());
-
-        match from_binary(&response.data.unwrap()).unwrap() {
-            HandleAnswer::RecvTokens { amount, status } => {
-                assert_eq!(amount, Uint128(0));
-                assert_eq!(status, ResponseStatus::Success);
-            }
-            _ => unreachable!(),
-        }
+        let response = handle(&mut deps, env.clone(), recv_tokens_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Nothing to receive"));
 
         let time = 500;
         env.block.time = time;

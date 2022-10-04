@@ -11,17 +11,20 @@
         "config": {
           "type": "object",
           "required": [
+            "admin",
             "lock_periods",
             "max_payments",
             "nft_contract",
             "nft_contract_hash",
-            "owner",
             "tier_contract",
             "tier_contract_hash",
             "token_contract",
             "token_contract_hash"
           ],
           "properties": {
+            "admin": {
+              "$ref": "#/definitions/HumanAddr"
+            },
             "lock_periods": {
               "type": "array",
               "items": {
@@ -41,9 +44,6 @@
             },
             "nft_contract_hash": {
               "type": "string"
-            },
-            "owner": {
-              "$ref": "#/definitions/HumanAddr"
             },
             "tier_contract": {
               "$ref": "#/definitions/HumanAddr"
@@ -91,8 +91,8 @@
         "ido_info": {
           "type": "object",
           "required": [
+            "admin",
             "end_time",
-            "owner",
             "participants",
             "price",
             "sold_amount",
@@ -104,13 +104,13 @@
             "withdrawn"
           ],
           "properties": {
+            "admin": {
+              "$ref": "#/definitions/HumanAddr"
+            },
             "end_time": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
-            },
-            "owner": {
-              "$ref": "#/definitions/HumanAddr"
             },
             "participants": {
               "type": "integer",
@@ -197,36 +197,21 @@
     {
       "type": "object",
       "required": [
-        "ido_amount_owned_by"
-      ],
-      "properties": {
-        "ido_amount_owned_by": {
-          "type": "object",
-          "required": [
-            "amount"
-          ],
-          "properties": {
-            "amount": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "ido_list_owned_by"
       ],
       "properties": {
         "ido_list_owned_by": {
           "type": "object",
           "required": [
+            "amount",
             "ido_ids"
           ],
           "properties": {
+            "amount": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "ido_ids": {
               "type": "array",
               "items": {

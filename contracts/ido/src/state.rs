@@ -43,8 +43,8 @@ pub fn archived_purchases(user: &CanonicalAddr, ido_id: u32) -> AppendStore<Purc
         .add_suffix(&ido_id.to_le_bytes())
 }
 
-pub fn ido_list_owned_by(owner: &CanonicalAddr) -> AppendStore<u32> {
-    OWNER_TO_IDOS.add_suffix(owner.as_slice())
+pub fn ido_list_owned_by(ido_admin: &CanonicalAddr) -> AppendStore<u32> {
+    OWNER_TO_IDOS.add_suffix(ido_admin.as_slice())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -71,14 +71,14 @@ impl Config {
     }
 
     pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
-        let owner = api.human_address(&self.admin)?;
+        let admin = api.human_address(&self.admin)?;
         let tier_contract = api.human_address(&self.tier_contract)?;
         let nft_contract = api.human_address(&self.nft_contract)?;
         let token_contract = api.human_address(&self.token_contract)?;
         let max_payments = self.max_payments.into_iter().map(Uint128).collect();
 
         Ok(QueryAnswer::Config {
-            owner,
+            admin,
             tier_contract,
             tier_contract_hash: self.tier_contract_hash,
             nft_contract,
@@ -199,11 +199,11 @@ impl Ido {
     }
 
     pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
-        let owner = api.human_address(&self.admin)?;
+        let admin = api.human_address(&self.admin)?;
         let token_contract = api.human_address(&self.token_contract)?;
 
         Ok(QueryAnswer::IdoInfo {
-            owner,
+            admin,
             start_time: self.start_time,
             end_time: self.end_time,
             token_contract,

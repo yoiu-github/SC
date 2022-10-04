@@ -110,25 +110,6 @@
     {
       "type": "object",
       "required": [
-        "ido_amount_owned_by"
-      ],
-      "properties": {
-        "ido_amount_owned_by": {
-          "type": "object",
-          "required": [
-            "address"
-          ],
-          "properties": {
-            "address": {
-              "$ref": "#/definitions/HumanAddr"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "ido_list_owned_by"
       ],
       "properties": {

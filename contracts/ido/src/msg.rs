@@ -163,9 +163,6 @@ pub enum QueryMsg {
         start: u32,
         limit: u32,
     },
-    IdoAmountOwnedBy {
-        address: HumanAddr,
-    },
     IdoListOwnedBy {
         address: HumanAddr,
         start: u32,
@@ -200,7 +197,7 @@ pub struct PurchaseAnswer {
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
     Config {
-        owner: HumanAddr,
+        admin: HumanAddr,
         tier_contract: HumanAddr,
         tier_contract_hash: String,
         nft_contract: HumanAddr,
@@ -214,7 +211,7 @@ pub enum QueryAnswer {
         amount: u32,
     },
     IdoInfo {
-        owner: HumanAddr,
+        admin: HumanAddr,
         start_time: u64,
         end_time: u64,
         token_contract: HumanAddr,
@@ -233,11 +230,9 @@ pub enum QueryAnswer {
         addresses: Vec<HumanAddr>,
         amount: u32,
     },
-    IdoAmountOwnedBy {
-        amount: u32,
-    },
     IdoListOwnedBy {
         ido_ids: Vec<u32>,
+        amount: u32,
     },
     Purchases {
         purchases: Vec<PurchaseAnswer>,

@@ -254,11 +254,9 @@ describe("IDO", () => {
   }
 
   it("Try to receive tokens before lock period", async () => {
-    const initialBalance = await snip20Contract.getBalance(user);
-    await idoContract.recvTokens(user, idoId);
-
-    const balance = await snip20Contract.getBalance(user);
-    assert.equal(balance.balance.amount, initialBalance.balance.amount);
+    await assert.rejects(async () => {
+      await idoContract.recvTokens(user, idoId);
+    });
   });
 
   it("Receive tokens after lock period", async () => {
@@ -278,7 +276,7 @@ describe("IDO", () => {
     assert.equal(
       balance.balance.amount,
       Number.parseInt(initialBalance.balance.amount) +
-        Number.parseInt(idoPayments[4]) / price,
+      Number.parseInt(idoPayments[4]) / price,
     );
 
     const purchases = await idoContract.purchases(user, idoId);

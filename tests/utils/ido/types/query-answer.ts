@@ -1,10 +1,10 @@
 export type Config = {
   config: {
+    admin: HumanAddr;
     lock_periods: number[];
     max_payments: Uint128[];
     nft_contract: HumanAddr;
     nft_contract_hash: string;
-    owner: HumanAddr;
     tier_contract: HumanAddr;
     tier_contract_hash: string;
     token_contract: HumanAddr;
@@ -20,8 +20,8 @@ export type IdoAmount = {
 
 export type IdoInfo = {
   ido_info: {
+    admin: HumanAddr;
     end_time: number;
-    owner: HumanAddr;
     participants: number;
     price: Uint128;
     sold_amount: Uint128;
@@ -47,15 +47,10 @@ export type Whitelist = {
   };
 };
 
-export type IdoAmountOwnedBy = {
-  ido_amount_owned_by: {
-    amount: number;
-  };
-};
-
 export type IdoListOwnerBy = {
   ido_list_owned_by: {
     ido_ids: number[];
+    amount: number;
   };
 };
 

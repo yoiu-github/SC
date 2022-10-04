@@ -27,12 +27,6 @@ export type Whitelist = {
   };
 };
 
-export type IdoAmountOwnedBy = {
-  ido_amount_owned_by: {
-    address: HumanAddr;
-  };
-};
-
 export type IdoListOwnedBy = {
   ido_list_owned_by: {
     address: HumanAddr;
