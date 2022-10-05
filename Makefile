@@ -1,27 +1,30 @@
-SECRETCLI := docker exec -it secretdev /usr/bin/secretcli
 WASM_OPT := $(shell wasm-opt --version 2>/dev/null)
 
-.PHONY: all
-all: clippy test
-
-.PHONY: check
-check:
-	cargo check
+.PHONY: test-all
+test-all: clippy test
 
 .PHONY: clippy
 clippy:
-	cargo clippy
+	cargo clippy --tests -- -D warnings
 
 .PHONY: test
-test:
+test: unit-test integration-test
+
+.PHONY: unit-test
+unit-test:
 	cargo test
 
-.PHONY: list-code
-list-code:
-	$(SECRETCLI) query compute list-code
+.PHONY: integration-test
+integration-test: _build
+	docker-compose up --detach --wait
+	yarn
+	yarn test
+	docker-compose down
 
-.PHONY: build _build
+.PHONY: build
 build: _build compress schema
+
+.PHONY: _build
 _build:
 	cargo build --release --target wasm32-unknown-unknown
 	mkdir --parents ./build
@@ -32,14 +35,6 @@ else
 	cp ./target/wasm32-unknown-unknown/release/tier.wasm ./build/tier.wasm
 	cp ./target/wasm32-unknown-unknown/release/ido.wasm ./build/ido.wasm
 endif
-
-.PHONY: start-server
-start-server:
-	docker-compose up -d
-
-.PHONY: stop-server
-stop-server:
-	docker-compose down
 
 .PHONY: compress
 compress: tier.wasm.gz ido.wasm.gz
@@ -58,4 +53,8 @@ schema:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -rf ./build/
+	rm -rf ./node_modules
+	rm -rf ./build/tier.wasm
+	rm -rf ./build/tier.wasm.gz
+	rm -rf ./build/ido.wasm
+	rm -rf ./build/ido.wasm.gz

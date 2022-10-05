@@ -8,3 +8,8 @@ services:
       - 26657:26657
       - 1317:1317
       - 5000:5000
+    healthcheck:
+      test: ["CMD-SHELL", "secretcli status"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
