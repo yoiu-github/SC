@@ -1,3 +1,8 @@
+# Requirements
+
+The project was build with: `rustc 1.63.0`, `node v18.10.0`, `yarn 1.22.19`,
+`wasm-opt 105`.
+
 # Test
 
 Run `make test` to test smart contracts
