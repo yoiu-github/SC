@@ -36,6 +36,8 @@ pub struct InitMsg {
     pub validator: HumanAddr,
     pub deposits: Vec<Uint128>,
     pub lock_periods: Vec<u64>,
+    pub band_oracle: HumanAddr,
+    pub band_code_hash: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -82,7 +84,8 @@ pub enum HandleAnswer {
         status: ResponseStatus,
     },
     Deposit {
-        deposit: Uint128,
+        usd_deposit: Uint128,
+        scrt_deposit: Uint128,
         tier: u8,
         status: ResponseStatus,
     },

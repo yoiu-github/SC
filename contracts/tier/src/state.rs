@@ -17,7 +17,7 @@ pub fn tier_info_list() -> AppendStore<'static, TierInfo> {
 }
 
 pub fn user_infos() -> Keymap<'static, CanonicalAddr, UserInfo> {
-    Keymap::new(b"deposit")
+    Keymap::new(b"user_info")
 }
 
 pub fn withdrawals_list(address: &CanonicalAddr) -> DequeStore<'static, UserWithdrawal> {
@@ -29,6 +29,8 @@ pub struct Config {
     pub admin: CanonicalAddr,
     pub validator: HumanAddr,
     pub status: u8,
+    pub band_oracle: HumanAddr,
+    pub band_code_hash: String,
 }
 
 impl Config {
@@ -119,6 +121,8 @@ mod tests {
             status: ContractStatus::Stopped as u8,
             admin: deps.api.canonical_address(&owner).unwrap(),
             validator,
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
         assert!(config.assert_contract_active().is_err());
 

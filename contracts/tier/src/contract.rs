@@ -1,4 +1,5 @@
 use crate::{
+    band::BandProtocol,
     msg::{
         ContractStatus, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg, ResponseStatus,
     },
@@ -44,6 +45,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         status: ContractStatus::Active as u8,
         admin: deps.api.canonical_address(&admin)?,
         validator: msg.validator,
+        band_oracle: msg.band_oracle,
+        band_code_hash: msg.band_code_hash,
     };
 
     initial_config.save(&mut deps.storage)?;
@@ -153,20 +156,25 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let config = Config::load(&deps.storage)?;
     config.assert_contract_active()?;
 
-    let deposit = utils::get_deposit(&env)?;
-    if deposit == 0 {
+    let mut scrt_deposit = utils::get_deposit(&env)?;
+    if scrt_deposit == 0 {
         return Err(StdError::generic_err("Deposit zero tokens"));
     }
+
+    let band_protocol =
+        BandProtocol::new(&deps.querier, config.band_oracle, config.band_code_hash)?;
+
+    let usd_deposit = band_protocol.usd_amount(scrt_deposit);
 
     let sender = deps.api.canonical_address(&env.message.sender)?;
     let user_infos = state::user_infos();
     let mut user_info = user_infos.get(&deps.storage, &sender).unwrap_or_default();
 
     let current_tier = user_info.tier;
-    let user_old_deposit = user_info.deposit;
-    let user_new_deposit = user_old_deposit.checked_add(deposit).unwrap();
+    let old_usd_deposit = band_protocol.usd_amount(user_info.deposit);
+    let new_usd_deposit = old_usd_deposit.checked_add(usd_deposit).unwrap();
 
-    let new_tier = utils::get_tier_by_deposit(&deps.storage, user_new_deposit)?;
+    let new_tier = utils::get_tier_by_deposit(&deps.storage, new_usd_deposit)?;
     let tier_list = state::tier_info_list();
     let max_tier = tier_list.get_len(&deps.storage)? as u8;
 
@@ -179,7 +187,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         let next_tier_state = tier_list.get_at(&deps.storage, next_tier_index.into())?;
 
         let min_deposit = next_tier_state.deposit;
-        let expected_deposit = min_deposit.checked_sub(user_old_deposit).unwrap();
+        let expected_deposit = min_deposit.checked_sub(old_usd_deposit).unwrap();
 
         let err_msg = format!("You should deposit at least {} USCRT", expected_deposit);
         return Err(StdError::generic_err(&err_msg));
@@ -190,13 +198,16 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let new_tier_info = tier_list.get_at(&deps.storage, new_tier_index.into())?;
 
     let new_tier_deposit = new_tier_info.deposit;
-    let refund = user_new_deposit.checked_sub(new_tier_deposit).unwrap();
+    let usd_refund = new_usd_deposit.checked_sub(new_tier_deposit).unwrap();
 
-    if refund != 0 {
+    if usd_refund != 0 {
+        let scrt_refund = band_protocol.uscrt_amount(usd_refund);
+        scrt_deposit = scrt_deposit.checked_sub(scrt_refund).unwrap();
+
         let send_msg = BankMsg::Send {
             from_address: env.contract.address,
             to_address: env.message.sender,
-            amount: coins(refund, USCRT),
+            amount: coins(scrt_refund, USCRT),
         };
 
         let msg = CosmosMsg::Bank(send_msg);
@@ -206,13 +217,13 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let lock_period = new_tier_info.lock_period;
     let withdraw_time = env.block.time.checked_add(lock_period).unwrap();
 
-    user_info.deposit = new_tier_deposit;
+    user_info.deposit = user_info.deposit.checked_add(scrt_deposit).unwrap();
     user_info.timestamp = env.block.time;
     user_info.tier = new_tier;
     user_info.withdraw_time = withdraw_time;
     user_infos.insert(&mut deps.storage, &sender, &user_info)?;
 
-    let deposited = deposit.checked_sub(refund).unwrap();
+    let deposited = usd_deposit.checked_sub(usd_refund).unwrap();
     let delegate_msg = StakingMsg::Delegate {
         validator: config.validator,
         amount: coin(deposited, USCRT),
@@ -222,7 +233,8 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     messages.push(msg);
 
     let answer = to_binary(&HandleAnswer::Deposit {
-        deposit: Uint128(user_info.deposit),
+        usd_deposit: Uint128(new_tier_deposit),
+        scrt_deposit: Uint128(user_info.deposit),
         tier: utils::normalize_tier(new_tier, max_tier),
         status: ResponseStatus::Success,
     })?;
@@ -574,6 +586,8 @@ mod tests {
             validator,
             deposits,
             lock_periods,
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         init_contract(init_msg).unwrap()
@@ -605,6 +619,8 @@ mod tests {
                 admin: deps.api.canonical_address(&admin).unwrap(),
                 validator,
                 status: status as u8,
+                band_oracle: "band_oracle".into(),
+                band_code_hash: String::new(),
             },
             _ => unreachable!(),
         }
@@ -672,6 +688,8 @@ mod tests {
             validator: validator.clone(),
             deposits: wrong_deposits,
             lock_periods: lock_periods.clone(),
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
@@ -684,6 +702,8 @@ mod tests {
             validator: validator.clone(),
             deposits: vec![],
             lock_periods: lock_periods.clone(),
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
@@ -696,6 +716,8 @@ mod tests {
             validator: validator.clone(),
             deposits: deposits.clone(),
             lock_periods: vec![],
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
@@ -708,6 +730,8 @@ mod tests {
             validator: validator.clone(),
             deposits: deposits[1..].to_owned(),
             lock_periods: lock_periods.clone(),
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
@@ -720,6 +744,8 @@ mod tests {
             validator: validator.clone(),
             deposits: deposits.clone(),
             lock_periods: lock_periods.clone(),
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let deps = init_contract(init_msg).unwrap();
@@ -748,6 +774,8 @@ mod tests {
             validator: validator.clone(),
             deposits,
             lock_periods,
+            band_oracle: "band_oracle".into(),
+            band_code_hash: String::new(),
         };
 
         let deps = init_contract(init_msg).unwrap();
@@ -838,16 +866,19 @@ mod tests {
         let error = extract_error(response);
         assert!(error.contains("Unsopported token"));
 
-        env.message.sent_funds = coins(100, USCRT);
+        // 1 SCRT = 0.5 USD
+        env.message.sent_funds = coins(200, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
 
         match from_binary(&response.data.unwrap()).unwrap() {
             HandleAnswer::Deposit {
-                deposit,
+                usd_deposit,
+                scrt_deposit,
                 tier,
                 status,
             } => {
-                assert_eq!(deposit.u128(), 100);
+                assert_eq!(usd_deposit.u128(), 100);
+                assert_eq!(scrt_deposit.u128(), 200);
                 assert_eq!(tier, 4);
                 assert_eq!(status, ResponseStatus::Success);
             }
@@ -866,7 +897,7 @@ mod tests {
         let tier_info = tier_info(&deps);
         let alice_info = user_info(&deps, alice.clone());
 
-        assert_eq!(alice_info.deposit, 100);
+        assert_eq!(alice_info.deposit, 200);
         assert_eq!(alice_info.tier, 4);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(
@@ -875,21 +906,23 @@ mod tests {
         );
 
         env.block.time += 100;
-        env.message.sent_funds = coins(649, USCRT);
+        env.message.sent_funds = coins(1299, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 650 USCRT"));
 
-        env.message.sent_funds = coins(5000, USCRT);
+        env.message.sent_funds = coins(10_000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
 
         match from_binary(&response.data.unwrap()).unwrap() {
             HandleAnswer::Deposit {
-                deposit,
+                usd_deposit,
+                scrt_deposit,
                 tier,
                 status,
             } => {
-                assert_eq!(deposit.u128(), 5000);
+                assert_eq!(usd_deposit.u128(), 5000);
+                assert_eq!(scrt_deposit.u128(), 10000);
                 assert_eq!(tier, 2);
                 assert_eq!(status, ResponseStatus::Success);
             }
@@ -902,7 +935,7 @@ mod tests {
             CosmosMsg::Bank(BankMsg::Send {
                 from_address: env.contract.address.clone(),
                 to_address: alice.clone(),
-                amount: coins(100, USCRT),
+                amount: coins(200, USCRT),
             })
         );
         assert_eq!(
@@ -914,7 +947,7 @@ mod tests {
         );
 
         let alice_info = user_info(&deps, alice.clone());
-        assert_eq!(alice_info.deposit, 5000);
+        assert_eq!(alice_info.deposit, 10000);
         assert_eq!(alice_info.tier, 2);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(
@@ -923,21 +956,23 @@ mod tests {
         );
 
         env.block.time += 100;
-        env.message.sent_funds = coins(10000, USCRT);
+        env.message.sent_funds = coins(20000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("You should deposit at least 15000 USCRT"));
 
-        env.message.sent_funds = coins(50000, USCRT);
+        env.message.sent_funds = coins(100000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
 
         match from_binary(&response.data.unwrap()).unwrap() {
             HandleAnswer::Deposit {
-                deposit,
+                usd_deposit,
+                scrt_deposit,
                 tier,
                 status,
             } => {
-                assert_eq!(deposit.u128(), 20000);
+                assert_eq!(usd_deposit.u128(), 20000);
+                assert_eq!(scrt_deposit.u128(), 40000);
                 assert_eq!(tier, 1);
                 assert_eq!(status, ResponseStatus::Success);
             }
@@ -950,7 +985,7 @@ mod tests {
             CosmosMsg::Bank(BankMsg::Send {
                 from_address: env.contract.address.clone(),
                 to_address: alice.clone(),
-                amount: coins(35000, USCRT),
+                amount: coins(70000, USCRT),
             })
         );
         assert_eq!(
@@ -962,7 +997,7 @@ mod tests {
         );
 
         let alice_info = user_info(&deps, alice);
-        assert_eq!(alice_info.deposit, 20000);
+        assert_eq!(alice_info.deposit, 40000);
         assert_eq!(alice_info.tier, 1);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(
@@ -982,7 +1017,7 @@ mod tests {
 
         let mut env = mock_env(alice.clone(), &[]);
         env.block.time = current_time();
-        env.message.sent_funds = coins(750, USCRT);
+        env.message.sent_funds = coins(1500, USCRT);
 
         let deposit_msg = HandleMsg::Deposit { padding: None };
         let withdraw_msg = HandleMsg::Withdraw { padding: None };
@@ -992,7 +1027,7 @@ mod tests {
         let day = 24 * 60 * 60;
         let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 3);
-        assert_eq!(alice_info.deposit, 750);
+        assert_eq!(alice_info.deposit, 1500);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(alice_info.withdraw_time, env.block.time + 5 * day);
 
@@ -1005,12 +1040,12 @@ mod tests {
 
         // Deposit some tokens. It will reset deposit time
         env.block.time += 365 * day;
-        env.message.sent_funds = coins(4250, USCRT);
+        env.message.sent_funds = coins(8500, USCRT);
 
         handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
         let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 2);
-        assert_eq!(alice_info.deposit, 5000);
+        assert_eq!(alice_info.deposit, 10000);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(alice_info.withdraw_time, env.block.time + 14 * day);
 
@@ -1033,12 +1068,12 @@ mod tests {
         assert!(error.contains("Not found"));
 
         // Deposit tokens during withdrawal
-        env.message.sent_funds = coins(25000, USCRT);
+        env.message.sent_funds = coins(50000, USCRT);
         handle(&mut deps, env.clone(), deposit_msg).unwrap();
 
         let alice_info = user_info(&deps, alice);
         assert_eq!(alice_info.tier, 1);
-        assert_eq!(alice_info.deposit, 20000);
+        assert_eq!(alice_info.deposit, 40000);
         assert_eq!(alice_info.timestamp, env.block.time);
         assert_eq!(alice_info.withdraw_time, env.block.time + 31 * day);
     }
@@ -1062,7 +1097,7 @@ mod tests {
         };
 
         // Deposit some tokens
-        let deposit = 750;
+        let deposit = 750 * 2;
         env.message.sent_funds = coins(deposit, USCRT);
         handle(&mut deps, env.clone(), deposit_msg).unwrap();
         env.message.sent_funds = Vec::new();
