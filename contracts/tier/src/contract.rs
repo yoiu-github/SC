@@ -187,9 +187,14 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         let next_tier_state = tier_list.get_at(&deps.storage, next_tier_index.into())?;
 
         let min_deposit = next_tier_state.deposit;
-        let expected_deposit = min_deposit.checked_sub(old_usd_deposit).unwrap();
+        let expected_deposit_usd = min_deposit.checked_sub(old_usd_deposit).unwrap();
+        let expected_deposit_scrt = band_protocol.uscrt_amount(expected_deposit_usd);
 
-        let err_msg = format!("You should deposit at least {} USCRT", expected_deposit);
+        let err_msg = format!(
+            "You should deposit at least {} USD ({} USCRT)",
+            expected_deposit_usd, expected_deposit_scrt
+        );
+
         return Err(StdError::generic_err(&err_msg));
     }
 
@@ -199,9 +204,9 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let new_tier_deposit = new_tier_info.deposit;
     let usd_refund = new_usd_deposit.checked_sub(new_tier_deposit).unwrap();
+    let scrt_refund = band_protocol.uscrt_amount(usd_refund);
 
-    if usd_refund != 0 {
-        let scrt_refund = band_protocol.uscrt_amount(usd_refund);
+    if scrt_refund != 0 {
         scrt_deposit = scrt_deposit.checked_sub(scrt_refund).unwrap();
 
         let send_msg = BankMsg::Send {
@@ -223,10 +228,9 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     user_info.withdraw_time = withdraw_time;
     user_infos.insert(&mut deps.storage, &sender, &user_info)?;
 
-    let deposited = usd_deposit.checked_sub(usd_refund).unwrap();
     let delegate_msg = StakingMsg::Delegate {
         validator: config.validator,
-        amount: coin(deposited, USCRT),
+        amount: coin(scrt_deposit, USCRT),
     };
 
     let msg = CosmosMsg::Staking(delegate_msg);
@@ -498,6 +502,8 @@ pub fn query_config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> Q
         validator: config.validator,
         status: config.status.into(),
         tier_list: serialized_tier_list,
+        band_oracle: config.band_oracle,
+        band_code_hash: config.band_code_hash,
     };
 
     to_binary(&answer)
@@ -859,7 +865,7 @@ mod tests {
         let deposit_msg = HandleMsg::Deposit { padding: None };
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
-        assert!(error.contains("You should deposit at least 100 USCRT"));
+        assert!(error.contains("You should deposit at least 100 USD (200 USCRT)"));
 
         env.message.sent_funds = coins(100, "ust");
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
@@ -890,7 +896,7 @@ mod tests {
             response.messages[0],
             CosmosMsg::Staking(StakingMsg::Delegate {
                 validator: HumanAddr::from("validator"),
-                amount: coin(100, USCRT)
+                amount: coin(200, USCRT)
             })
         );
 
@@ -909,7 +915,7 @@ mod tests {
         env.message.sent_funds = coins(1299, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
-        assert!(error.contains("You should deposit at least 650 USCRT"));
+        assert!(error.contains("You should deposit at least 650 USD (1300 USCRT)"));
 
         env.message.sent_funds = coins(10_000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
@@ -942,7 +948,7 @@ mod tests {
             response.messages[1],
             CosmosMsg::Staking(StakingMsg::Delegate {
                 validator: HumanAddr::from("validator"),
-                amount: coin(4900, USCRT)
+                amount: coin(9800, USCRT)
             })
         );
 
@@ -959,7 +965,7 @@ mod tests {
         env.message.sent_funds = coins(20000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone());
         let error = extract_error(response);
-        assert!(error.contains("You should deposit at least 15000 USCRT"));
+        assert!(error.contains("You should deposit at least 15000 USD (30000 USCRT)"));
 
         env.message.sent_funds = coins(100000, USCRT);
         let response = handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
@@ -992,7 +998,7 @@ mod tests {
             response.messages[1],
             CosmosMsg::Staking(StakingMsg::Delegate {
                 validator: HumanAddr::from("validator"),
-                amount: coin(15000, USCRT)
+                amount: coin(30000, USCRT)
             })
         );
 

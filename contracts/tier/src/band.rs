@@ -15,14 +15,10 @@ impl Query for QueryMsg {
     const BLOCK_SIZE: usize = crate::contract::BLOCK_SIZE;
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AnswerMsg {
-    ReferenceData {
-        rate: Uint128,
-        last_updated_base: u64,
-        last_updated_quote: u64,
-    },
+pub struct QueryAnswer {
+    rate: Uint128,
 }
 
 pub struct BandProtocol {
@@ -79,8 +75,7 @@ impl BandProtocol {
             quote_symbol: "USD".to_string(),
         };
 
-        let AnswerMsg::ReferenceData { rate, .. } =
-            query_data.query(querier, code_hash, contract)?;
+        let QueryAnswer { rate } = query_data.query(querier, code_hash, contract)?;
 
         Ok(rate.u128())
     }
@@ -94,12 +89,12 @@ mod tests {
     fn conversion() {
         // 1 USD = 0.5 SCRT
         let band_protocol = BandProtocol::new_with_value(BandProtocol::ONE_USD / 2);
-        let deposit = 2_000_000;
+        for deposit in &[150_000_000_000, 2_000_000, 50, 2] {
+            let usd = band_protocol.usd_amount(*deposit);
+            assert_eq!(usd, deposit / 2);
 
-        let usd = band_protocol.usd_amount(deposit);
-        assert_eq!(usd, deposit / 2);
-
-        let uscrt = band_protocol.uscrt_amount(usd);
-        assert_eq!(uscrt, deposit);
+            let uscrt = band_protocol.uscrt_amount(usd);
+            assert_eq!(uscrt, *deposit);
+        }
     }
 }

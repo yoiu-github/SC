@@ -143,6 +143,8 @@ pub enum QueryAnswer {
         validator: HumanAddr,
         status: ContractStatus,
         tier_list: Vec<SerializedTierInfo>,
+        band_oracle: HumanAddr,
+        band_code_hash: String,
     },
     UserInfo {
         tier: u8,
