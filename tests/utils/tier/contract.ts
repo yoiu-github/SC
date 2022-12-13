@@ -2,20 +2,17 @@ import { SecretNetworkClient } from "secretjs";
 import { broadcastWithCheck, getExecuteMsg, Tier } from "..";
 import { BaseContract } from "../baseContract";
 
-export class TierContract extends BaseContract {
+export class Contract extends BaseContract {
   constructor(label = "tier") {
     super(label);
   }
 
-  async init(
-    client: SecretNetworkClient,
-    initMsg: Tier.InitMsg,
-  ) {
+  async init(client: SecretNetworkClient, initMsg: Tier.InitMsg) {
     await super.deploy(client, initMsg, "./build/tier.wasm");
   }
 
   async userInfo(
-    client: SecretNetworkClient,
+    client: SecretNetworkClient
   ): Promise<Tier.QueryAnswer.UserInfo> {
     const queryUserInfo: Tier.QueryMsg.UserInfo = {
       user_info: { address: client.address },
@@ -24,9 +21,7 @@ export class TierContract extends BaseContract {
     return await super.query(client, queryUserInfo);
   }
 
-  async config(
-    client: SecretNetworkClient,
-  ): Promise<Tier.QueryAnswer.Config> {
+  async config(client: SecretNetworkClient): Promise<Tier.QueryAnswer.Config> {
     const queryConfig: Tier.QueryMsg.Config = { config: {} };
     return await super.query(client, queryConfig);
   }
@@ -34,7 +29,7 @@ export class TierContract extends BaseContract {
   async withdrawals(
     client: SecretNetworkClient,
     start?: number,
-    limit?: number,
+    limit?: number
   ): Promise<Tier.QueryAnswer.Withdrawals> {
     const queryWithdrawals: Tier.QueryMsg.Withdrawals = {
       withdrawals: { address: client.address, start, limit },
@@ -45,12 +40,12 @@ export class TierContract extends BaseContract {
 
   async changeStatus(
     client: SecretNetworkClient,
-    status: Tier.HandleMsg.ContractStatus,
+    status: Tier.HandleMsg.ContractStatus
   ): Promise<Tier.HandleAnswer.ChangeStatus> {
     const changeStatusMsg = getExecuteMsg<Tier.HandleMsg.ChangeStatus>(
       this.contractInfo,
       client.address,
-      { change_status: { status } },
+      { change_status: { status } }
     );
 
     const response = await broadcastWithCheck(client, [changeStatusMsg]);
@@ -59,12 +54,12 @@ export class TierContract extends BaseContract {
 
   async redelegate(
     client: SecretNetworkClient,
-    validator: string,
+    validator: string
   ): Promise<Tier.HandleAnswer.Redelegate> {
     const changeStatusMsg = getExecuteMsg<Tier.HandleMsg.Redelegate>(
       this.contractInfo,
       client.address,
-      { redelegate: { validator_address: validator } },
+      { redelegate: { validator_address: validator } }
     );
 
     const response = await broadcastWithCheck(client, [changeStatusMsg]);
@@ -74,7 +69,7 @@ export class TierContract extends BaseContract {
   async deposit(
     client: SecretNetworkClient,
     amount: number,
-    denom = "uscrt",
+    denom = "uscrt"
   ): Promise<Tier.HandleAnswer.Deposit> {
     const depositMsg = getExecuteMsg<Tier.HandleMsg.Deposit>(
       this.contractInfo,
@@ -85,7 +80,7 @@ export class TierContract extends BaseContract {
           denom,
           amount: amount.toString(),
         },
-      ],
+      ]
     );
 
     const response = await broadcastWithCheck(client, [depositMsg]);
@@ -93,22 +88,19 @@ export class TierContract extends BaseContract {
   }
 
   async withdraw(
-    client: SecretNetworkClient,
+    client: SecretNetworkClient
   ): Promise<Tier.HandleAnswer.Withdraw> {
     const withdrawMsg = getExecuteMsg<Tier.HandleMsg.Withdraw>(
       this.contractInfo,
       client.address,
-      { withdraw: {} },
+      { withdraw: {} }
     );
 
     const response = await broadcastWithCheck(client, [withdrawMsg]);
     return response[0] as Tier.HandleAnswer.Withdraw;
   }
 
-  async setTier(
-    client: SecretNetworkClient,
-    tier: number,
-  ) {
+  async setTier(client: SecretNetworkClient, tier: number) {
     const userInfo = await this.userInfo(client);
     const currentTier = userInfo.user_info.tier;
     if (currentTier == tier) {

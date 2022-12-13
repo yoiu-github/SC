@@ -4,6 +4,8 @@ export type Config = {
     validator: HumanAddr;
     status: ContractStatus;
     tier_list: TierInfo[];
+    band_oracle: HumanAddr;
+    band_code_hash: string;
   };
 };
 

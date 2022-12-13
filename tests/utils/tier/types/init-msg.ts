@@ -6,4 +6,6 @@ export interface InitMsg {
   lock_periods: number[];
   owner?: HumanAddr | null;
   validator: HumanAddr;
+  band_oracle: HumanAddr;
+  band_code_hash: String;
 }
