@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { sha256 } from "@noble/hashes/sha256";
 import { JsonLog, SecretNetworkClient } from "secretjs";
 import { QueryContractAddressResponse } from "secretjs/dist/grpc_gateway/secret/compute/v1beta1/query.pb";
 
@@ -8,11 +9,13 @@ export type ContractDeployInfo = {
 };
 
 export class BaseContract {
-  readonly label: string;
+  readonly label?: string;
+  readonly path?: string;
   contractInfo: ContractDeployInfo;
 
-  constructor(label: string) {
+  constructor(label?: string, path?: string) {
     this.label = label;
+    this.path = path;
   }
 
   setContractInfo(contractInfo: ContractDeployInfo) {
@@ -55,15 +58,54 @@ export class BaseContract {
     return { address: contractAddress, codeHash: codeHash.code_hash! };
   }
 
-  async deploy(client: SecretNetworkClient, initMsg: object, path: string) {
-    const deployedContract = await this.getContractInfo(client, this.label);
+  wasmHash() {
+    if (this.path == null) {
+      throw new Error("Specify path first");
+    }
+    const wasmByteCode = fs.readFileSync(this.path);
+    return Buffer.from(sha256(wasmByteCode)).toString("hex").slice(0, 10);
+  }
 
-    if (deployedContract != null) {
-      this.contractInfo = deployedContract;
-      return;
+  async codeId(
+    client: SecretNetworkClient,
+    label?: string
+  ): Promise<string | null> {
+    if (label == null) {
+      label = this.label + this.wasmHash();
     }
 
-    const wasmByteCode = fs.readFileSync(path);
+    let address: string;
+
+    try {
+      address = await client.query.compute
+        .addressByLabel({ label })
+        .then((a) => a.contract_address!);
+    } catch {
+      return null;
+    }
+
+    return client.query.compute
+      .contractInfo({ contract_address: address })
+      .then((i) => i.ContractInfo?.code_id || null);
+  }
+
+  async init(client: SecretNetworkClient, initMsg: any) {
+    const codeId = await this.deploy(client, initMsg);
+    await this.store(client, codeId!, initMsg);
+  }
+
+  async deploy(client: SecretNetworkClient, initMsg: any) {
+    if (this.path == null) {
+      throw new Error("Specify path first");
+    }
+
+    const label = this.label + this.wasmHash();
+    let codeId = await this.codeId(client, label);
+    if (codeId != null) {
+      return codeId;
+    }
+
+    const wasmByteCode = fs.readFileSync(this.path);
     const transaction = await client.tx.compute.storeCode(
       {
         wasm_byte_code: wasmByteCode,
@@ -83,11 +125,23 @@ export class BaseContract {
       (a: { key: string; value: string }) => a.key == "code_id"
     );
 
-    if (codeIdKeyValue == null) {
-      throw new Error("Cannot find code_id");
+    codeId = codeIdKeyValue!.value!;
+    await this.store(client, codeId, initMsg, label);
+
+    return codeId;
+  }
+
+  async store(
+    client: SecretNetworkClient,
+    codeId: string,
+    initMsg: any,
+    label?: string
+  ) {
+    if (label == null) {
+      const timeString = new Date().getTime().toString();
+      label = this.label + timeString;
     }
 
-    const codeId = codeIdKeyValue.value;
     const codeHash = await client.query.compute
       .codeHashByCodeId({
         code_id: codeId,
@@ -100,7 +154,7 @@ export class BaseContract {
         code_id: codeId,
         init_msg: initMsg,
         code_hash: codeHash,
-        label: this.label,
+        label,
       },
       { gasLimit: 150000 }
     );
@@ -115,7 +169,19 @@ export class BaseContract {
       code_id: codeId,
     });
 
-    const address = info.contract_infos![0].contract_address!;
-    this.contractInfo = { address, codeHash };
+    const contracts = info.contract_infos!;
+
+    for (const contract of contracts) {
+      if (contract.ContractInfo?.label == label) {
+        const address = contract.contract_address!;
+        const codeHash = await client.query.compute
+          .codeHashByContractAddress({
+            contract_address: address,
+          })
+          .then((h) => h.code_hash!);
+
+        this.contractInfo = { address: contract.contract_address!, codeHash };
+      }
+    }
   }
 }

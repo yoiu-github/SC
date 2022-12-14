@@ -12,21 +12,29 @@
           "type": "object",
           "required": [
             "admin",
+            "band_code_hash",
+            "band_oracle",
             "status",
-            "tier_list",
+            "usd_deposits",
             "validator"
           ],
           "properties": {
             "admin": {
               "$ref": "#/definitions/HumanAddr"
             },
+            "band_code_hash": {
+              "type": "string"
+            },
+            "band_oracle": {
+              "$ref": "#/definitions/HumanAddr"
+            },
             "status": {
               "$ref": "#/definitions/ContractStatus"
             },
-            "tier_list": {
+            "usd_deposits": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/SerializedTierInfo"
+                "$ref": "#/definitions/Uint128"
               }
             },
             "validator": {
@@ -47,8 +55,7 @@
           "required": [
             "deposit",
             "tier",
-            "timestamp",
-            "withdraw_time"
+            "timestamp"
           ],
           "properties": {
             "deposit": {
@@ -60,11 +67,6 @@
               "minimum": 0.0
             },
             "timestamp": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "withdraw_time": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
@@ -112,23 +114,6 @@
     },
     "HumanAddr": {
       "type": "string"
-    },
-    "SerializedTierInfo": {
-      "type": "object",
-      "required": [
-        "deposit",
-        "lock_period"
-      ],
-      "properties": {
-        "deposit": {
-          "$ref": "#/definitions/Uint128"
-        },
-        "lock_period": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        }
-      }
     },
     "SerializedWithdrawals": {
       "type": "object",

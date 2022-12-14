@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import { SecretNetworkClient } from "secretjs";
-import { Band, getAdmin, getUser, Tier, waitFor } from "./utils";
+import { Band, getAdmin, getUser, Tier } from "./utils";
 
 describe("Tier", () => {
   let admin: SecretNetworkClient;
@@ -9,11 +9,9 @@ describe("Tier", () => {
   const chainId = "pulsar-2";
   const endpoint = "https://api.pulsar.scrttestnet.com";
 
-  const tierSuffix = new Date().getTime().toString();
-  const tierDeposits = ["100", "200", "500", "1000"];
-  const tierLockPeriods = [30, 40, 50, 20];
-  const tierContract = new Tier.Contract("Tier" + tierSuffix);
-  const bandContract = new Band.Contract("Band");
+  const tierDeposits = ["1000", "500", "200", "100"];
+  const tierContract = new Tier.Contract("Tier");
+  const bandContract = new Band.Contract();
 
   bandContract.setContractInfo({
     address: "secret14swdnnllsfvtnvwmtvnvcj2zu0njsl9cdkk5xp",
@@ -42,7 +40,6 @@ describe("Tier", () => {
     const initTierMsg: Tier.InitMsg = {
       validator,
       deposits: tierDeposits,
-      lock_periods: tierLockPeriods,
       band_oracle: bandContract.contractInfo.address,
       band_code_hash: bandContract.contractInfo.codeHash,
     };
@@ -79,7 +76,7 @@ describe("Tier", () => {
     });
 
     const userInfo = await tierContract.userInfo(user);
-    assert.equal(userInfo.user_info.tier, 0);
+    assert.equal(userInfo.user_info.tier, 5);
     assert.equal(userInfo.user_info.deposit, 0);
   });
 
@@ -92,10 +89,6 @@ describe("Tier", () => {
     userInfo = await tierContract.userInfo(user);
     depositEquals(userInfo, initialDeposit + amount);
     assert.equal(userInfo.user_info.tier, 4);
-    assert.equal(
-      userInfo.user_info.withdraw_time,
-      userInfo.user_info.timestamp + tierLockPeriods[0]
-    );
   });
 
   it("Tier 3", async () => {
@@ -107,10 +100,6 @@ describe("Tier", () => {
     userInfo = await tierContract.userInfo(user);
     depositEquals(userInfo, initialDeposit + amount);
     assert.equal(userInfo.user_info.tier, 3);
-    assert.equal(
-      userInfo.user_info.withdraw_time,
-      userInfo.user_info.timestamp + tierLockPeriods[1]
-    );
   });
 
   it("Try to change status with user", async () => {
@@ -147,10 +136,6 @@ describe("Tier", () => {
     userInfo = await tierContract.userInfo(user);
     depositEquals(userInfo, initialDeposit + amount);
     assert.equal(userInfo.user_info.tier, 2);
-    assert.equal(
-      userInfo.user_info.withdraw_time,
-      userInfo.user_info.timestamp + tierLockPeriods[2]
-    );
   });
 
   it("Tier 1", async () => {
@@ -164,10 +149,6 @@ describe("Tier", () => {
     userInfo = await tierContract.userInfo(user);
     depositEquals(userInfo, initialDeposit + expectedAmount);
     assert.equal(userInfo.user_info.tier, 1);
-    assert.equal(
-      userInfo.user_info.withdraw_time,
-      userInfo.user_info.timestamp + tierLockPeriods[3]
-    );
 
     const delegation = await user.query.staking.delegation({
       delegator_addr: tierContract.contractInfo.address,
@@ -176,7 +157,7 @@ describe("Tier", () => {
 
     const expectedDeposit = await bandContract.calculateUscrtAmount(
       admin,
-      initialDelegation + Number.parseInt(tierDeposits[3])
+      initialDelegation + Number.parseInt(tierDeposits[0])
     );
 
     const delegationAmount = Number.parseInt(
@@ -193,25 +174,16 @@ describe("Tier", () => {
     });
   });
 
-  it("Withdraw tokens before lock period", async () => {
-    await assert.rejects(async () => {
-      await tierContract.withdraw(user);
-    });
-  });
-
-  it("Withdraw tokens after lock period", async () => {
+  it("Withdraw tokens", async () => {
     let userInfo = await tierContract.userInfo(user);
     let deposit = userInfo.user_info.deposit;
-
-    await waitFor(userInfo.user_info.withdraw_time);
 
     await tierContract.withdraw(user);
     userInfo = await tierContract.userInfo(user);
 
-    assert.equal(userInfo.user_info.tier, 0);
+    assert.equal(userInfo.user_info.tier, 5);
     assert.equal(userInfo.user_info.deposit, 0);
     assert.equal(userInfo.user_info.timestamp, 0);
-    assert.equal(userInfo.user_info.withdraw_time, 0);
 
     const withdrawals = await tierContract.withdrawals(user);
     const withdrawal = withdrawals.withdrawals.withdrawals[0];
@@ -251,10 +223,6 @@ describe("Tier", () => {
     const userInfo = await tierContract.userInfo(user);
     depositEquals(userInfo, expectedAmount);
     assert.equal(userInfo.user_info.tier, 1);
-    assert.equal(
-      userInfo.user_info.withdraw_time,
-      userInfo.user_info.timestamp + tierLockPeriods[3]
-    );
 
     withdrawals = await tierContract.withdrawals(user);
     withdrawal = withdrawals.withdrawals.withdrawals[0];
@@ -268,7 +236,7 @@ describe("Tier", () => {
 
     const expectedDeposit = await bandContract.calculateUscrtAmount(
       admin,
-      initialDelegation + Number.parseInt(tierDeposits[3])
+      initialDelegation + Number.parseInt(tierDeposits[0])
     );
 
     const delegationAmount = Number.parseInt(

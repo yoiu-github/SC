@@ -49,12 +49,13 @@
         "deposit": {
           "type": "object",
           "required": [
-            "deposit",
+            "scrt_deposit",
             "status",
-            "tier"
+            "tier",
+            "usd_deposit"
           ],
           "properties": {
-            "deposit": {
+            "scrt_deposit": {
               "$ref": "#/definitions/Uint128"
             },
             "status": {
@@ -64,6 +65,9 @@
               "type": "integer",
               "format": "uint8",
               "minimum": 0.0
+            },
+            "usd_deposit": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }

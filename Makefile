@@ -16,10 +16,8 @@ unit-test:
 
 .PHONY: integration-test
 integration-test: _build
-	docker-compose up --detach --wait
 	yarn
 	yarn test
-	docker-compose down
 
 .PHONY: build
 build: _build compress schema

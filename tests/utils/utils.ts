@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import axios from "axios";
 import {
   Coin,
@@ -7,16 +6,10 @@ import {
   SecretNetworkClient,
   Wallet,
 } from "secretjs";
-import { sha256 } from "@noble/hashes/sha256";
 import { ContractDeployInfo } from "./baseContract";
 
 export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function wasmHash(path: string) {
-  const wasmByteCode = fs.readFileSync(path);
-  return Buffer.from(sha256(wasmByteCode)).toString("hex").slice(0, 10);
 }
 
 export function waitFor(timestamp: number) {

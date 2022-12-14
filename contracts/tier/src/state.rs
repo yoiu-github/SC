@@ -1,20 +1,12 @@
-use crate::{
-    msg::{ContractStatus, QueryAnswer, SerializedTierInfo, SerializedWithdrawals},
-    utils::normalize_tier,
-};
+use crate::msg::{ContractStatus, QueryAnswer, SerializedWithdrawals};
 use cosmwasm_std::{
-    CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
+    Api, CanonicalAddr, HumanAddr, ReadonlyStorage, StdError, StdResult, Storage, Uint128,
 };
-use schemars::JsonSchema;
-use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
+use secret_toolkit_storage::{DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
 
 static CONFIG_ITEM: Item<Config> = Item::new(b"config");
 static WITHDRAWALS_LIST: DequeStore<UserWithdrawal> = DequeStore::new(b"withdraw");
-
-pub fn tier_info_list() -> AppendStore<'static, TierInfo> {
-    AppendStore::new(b"tier")
-}
 
 pub fn user_infos() -> Keymap<'static, CanonicalAddr, UserInfo> {
     Keymap::new(b"user_info")
@@ -31,6 +23,7 @@ pub struct Config {
     pub status: u8,
     pub band_oracle: HumanAddr,
     pub band_code_hash: String,
+    pub usd_deposits: Vec<u128>,
 }
 
 impl Config {
@@ -42,6 +35,28 @@ impl Config {
         CONFIG_ITEM.save(storage, self)
     }
 
+    pub fn min_tier(&self) -> u8 {
+        self.usd_deposits.len().checked_add(1).unwrap() as u8
+    }
+
+    pub fn max_tier(&self) -> u8 {
+        1
+    }
+
+    pub fn deposit_by_tier(&self, tier: u8) -> u128 {
+        let tier_index = tier.checked_sub(1).unwrap();
+        self.usd_deposits[tier_index as usize]
+    }
+
+    pub fn tier_by_deposit(&self, usd_deposit: u128) -> u8 {
+        self.usd_deposits
+            .iter()
+            .position(|d| *d <= usd_deposit)
+            .unwrap_or(self.usd_deposits.len())
+            .checked_add(1)
+            .unwrap() as u8
+    }
+
     pub fn assert_contract_active(&self) -> StdResult<()> {
         let active = ContractStatus::Active as u8;
         if self.status != active {
@@ -50,21 +65,22 @@ impl Config {
 
         Ok(())
     }
-}
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct TierInfo {
-    pub deposit: u128,
-    pub lock_period: u64,
-}
+    pub fn to_answer<A: Api>(&self, api: &A) -> StdResult<QueryAnswer> {
+        let admin = api.human_address(&self.admin)?;
 
-impl TierInfo {
-    pub fn to_serialized(&self) -> SerializedTierInfo {
-        SerializedTierInfo {
-            deposit: Uint128(self.deposit),
-            lock_period: self.lock_period,
-        }
+        return Ok(QueryAnswer::Config {
+            admin,
+            validator: self.validator.clone(),
+            status: self.status.into(),
+            band_oracle: self.band_oracle.clone(),
+            band_code_hash: self.band_code_hash.clone(),
+            usd_deposits: self
+                .usd_deposits
+                .iter()
+                .map(|d| Uint128::from(*d))
+                .collect(),
+        });
     }
 }
 
@@ -72,20 +88,16 @@ impl TierInfo {
 pub struct UserInfo {
     pub tier: u8,
     pub deposit: u128,
-    pub withdraw_time: u64,
     pub timestamp: u64,
 }
 
 impl UserInfo {
-    pub fn to_answer<S: ReadonlyStorage>(&self, storage: &S) -> StdResult<QueryAnswer> {
-        let length = tier_info_list().get_len(storage)?;
-
-        Ok(QueryAnswer::UserInfo {
-            tier: normalize_tier(self.tier, length as u8),
+    pub fn to_answer(&self) -> QueryAnswer {
+        QueryAnswer::UserInfo {
+            tier: self.tier,
             deposit: Uint128(self.deposit),
-            withdraw_time: self.withdraw_time,
             timestamp: self.timestamp,
-        })
+        }
     }
 }
 
@@ -111,19 +123,24 @@ mod tests {
     use super::*;
     use cosmwasm_std::{testing::mock_dependencies, Api, HumanAddr};
 
-    #[test]
-    fn config() {
-        let mut deps = mock_dependencies(20, &[]);
+    fn get_config<A: Api>(api: &A) -> Config {
         let owner = HumanAddr::from("owner");
         let validator = HumanAddr::from("validator");
 
-        let mut config = Config {
+        Config {
             status: ContractStatus::Stopped as u8,
-            admin: deps.api.canonical_address(&owner).unwrap(),
+            admin: api.canonical_address(&owner).unwrap(),
             validator,
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
-        };
+            usd_deposits: vec![40, 30, 20, 10],
+        }
+    }
+
+    #[test]
+    fn config() {
+        let mut deps = mock_dependencies(20, &[]);
+        let mut config = get_config(&deps.api);
         assert!(config.assert_contract_active().is_err());
 
         config.status = ContractStatus::Active as u8;
@@ -133,5 +150,23 @@ mod tests {
 
         let loaded_config = Config::load(&deps.storage).unwrap();
         assert_eq!(config, loaded_config);
+    }
+
+    #[test]
+    fn tier_by_deposit() {
+        let deps = mock_dependencies(20, &[]);
+        let config = get_config(&deps.api);
+
+        assert_eq!(config.max_tier(), 1);
+        assert_eq!(config.min_tier(), 5);
+
+        assert_eq!(config.tier_by_deposit(9), 5);
+        assert_eq!(config.tier_by_deposit(10), 4);
+        assert_eq!(config.tier_by_deposit(19), 4);
+        assert_eq!(config.tier_by_deposit(20), 3);
+        assert_eq!(config.tier_by_deposit(29), 3);
+        assert_eq!(config.tier_by_deposit(30), 2);
+        assert_eq!(config.tier_by_deposit(39), 2);
+        assert_eq!(config.tier_by_deposit(40), 1);
     }
 }

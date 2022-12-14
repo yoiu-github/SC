@@ -1,10 +1,7 @@
-use crate::{
-    contract::USCRT,
-    state::{self, Config},
-};
+use crate::{contract::USCRT, state::Config};
 use cosmwasm_std::{
-    Api, Coin, Empty, Env, FullDelegation, HumanAddr, Querier, QueryRequest, ReadonlyStorage,
-    StakingQuery, StdError, StdResult,
+    Api, Coin, Empty, Env, FullDelegation, HumanAddr, Querier, QueryRequest, StakingQuery,
+    StdError, StdResult,
 };
 use serde::Deserialize;
 
@@ -95,34 +92,4 @@ pub fn query_delegation<Q: Querier>(
     };
 
     Ok(delegation)
-}
-
-pub fn get_tier_by_deposit<S: ReadonlyStorage>(storage: &S, deposit: u128) -> StdResult<u8> {
-    let tier_list = state::tier_info_list();
-    let length = tier_list.get_len(storage)? as u8;
-
-    let mut tier = 0;
-    for index in 0..length {
-        let tier_state = tier_list.get_at(storage, index.into())?;
-        if deposit < tier_state.deposit {
-            break;
-        } else {
-            tier = index.checked_add(1).unwrap();
-        }
-    }
-
-    Ok(tier)
-}
-
-// Input:  0 1 2 3 4
-// Output: 0 4 3 2 1
-pub fn normalize_tier(tier: u8, length: u8) -> u8 {
-    if tier == 0 {
-        return 0;
-    }
-
-    length
-        .checked_add(1)
-        .and_then(|v| v.checked_sub(tier))
-        .unwrap()
 }

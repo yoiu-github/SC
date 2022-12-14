@@ -4,10 +4,6 @@ import { BaseContract } from "../baseContract";
 import { QueryAnswer, QueryMsg } from "./types";
 
 export class Contract extends BaseContract {
-  constructor(label: string) {
-    super(label);
-  }
-
   static oneUsd(): BN {
     return new BN("1000000000000000000");
   }

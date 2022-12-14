@@ -3,8 +3,9 @@
   "title": "InitMsg",
   "type": "object",
   "required": [
+    "band_code_hash",
+    "band_oracle",
     "deposits",
-    "lock_periods",
     "validator"
   ],
   "properties": {
@@ -18,18 +19,16 @@
         }
       ]
     },
+    "band_code_hash": {
+      "type": "string"
+    },
+    "band_oracle": {
+      "$ref": "#/definitions/HumanAddr"
+    },
     "deposits": {
       "type": "array",
       "items": {
         "$ref": "#/definitions/Uint128"
-      }
-    },
-    "lock_periods": {
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "format": "uint64",
-        "minimum": 0.0
       }
     },
     "validator": {

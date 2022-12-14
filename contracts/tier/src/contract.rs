@@ -3,7 +3,7 @@ use crate::{
     msg::{
         ContractStatus, HandleAnswer, HandleMsg, InitMsg, QueryAnswer, QueryMsg, ResponseStatus,
     },
-    state::{self, Config, TierInfo, UserWithdrawal},
+    state::{self, Config, UserInfo, UserWithdrawal},
     utils,
 };
 use cosmwasm_std::{
@@ -22,21 +22,16 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: InitMsg,
 ) -> InitResult {
-    let deposits = msg.deposits;
-    let lock_periods = msg.lock_periods;
+    let deposits = msg.deposits.iter().map(|v| v.u128()).collect::<Vec<_>>();
 
-    if deposits.is_empty() || lock_periods.is_empty() {
-        return Err(StdError::generic_err("Array is empty"));
+    if deposits.is_empty() {
+        return Err(StdError::generic_err("Deposits array is empty"));
     }
 
-    if deposits.len() != lock_periods.len() {
-        return Err(StdError::generic_err("Arrays have different length"));
-    }
-
-    let is_sorted = deposits.as_slice().windows(2).all(|v| v[0] < v[1]);
+    let is_sorted = deposits.as_slice().windows(2).all(|v| v[0] > v[1]);
     if !is_sorted {
         return Err(StdError::generic_err(
-            "Specify deposits in increasing order",
+            "Specify deposits in decreasing order",
         ));
     }
 
@@ -45,23 +40,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         status: ContractStatus::Active as u8,
         admin: deps.api.canonical_address(&admin)?,
         validator: msg.validator,
+        usd_deposits: deposits,
         band_oracle: msg.band_oracle,
         band_code_hash: msg.band_code_hash,
     };
 
     initial_config.save(&mut deps.storage)?;
-
-    let length = deposits.len();
-    let tier_list = state::tier_info_list();
-    for i in 0..length {
-        let tier = TierInfo {
-            deposit: deposits[i].u128(),
-            lock_period: lock_periods[i],
-        };
-
-        tier_list.push(&mut deps.storage, &tier)?;
-    }
-
     Ok(InitResponse::default())
 }
 
@@ -161,33 +145,39 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Deposit zero tokens"));
     }
 
-    let band_protocol =
-        BandProtocol::new(&deps.querier, config.band_oracle, config.band_code_hash)?;
+    let band_protocol = BandProtocol::new(
+        &deps.querier,
+        config.band_oracle.clone(),
+        config.band_code_hash.clone(),
+    )?;
 
     let usd_deposit = band_protocol.usd_amount(scrt_deposit);
 
     let sender = deps.api.canonical_address(&env.message.sender)?;
     let user_infos = state::user_infos();
-    let mut user_info = user_infos.get(&deps.storage, &sender).unwrap_or_default();
+    let mut user_info = user_infos
+        .get(&deps.storage, &sender)
+        .unwrap_or_else(|| state::UserInfo {
+            tier: config.min_tier(),
+            deposit: 0,
+            timestamp: 0,
+        });
 
     let current_tier = user_info.tier;
     let old_usd_deposit = band_protocol.usd_amount(user_info.deposit);
     let new_usd_deposit = old_usd_deposit.checked_add(usd_deposit).unwrap();
 
-    let new_tier = utils::get_tier_by_deposit(&deps.storage, new_usd_deposit)?;
-    let tier_list = state::tier_info_list();
-    let max_tier = tier_list.get_len(&deps.storage)? as u8;
+    let new_tier = config.tier_by_deposit(new_usd_deposit);
 
     if current_tier == new_tier {
-        if current_tier == max_tier {
+        if current_tier == config.max_tier() {
             return Err(StdError::generic_err("Reached max tear"));
         }
 
-        let next_tier_index = current_tier;
-        let next_tier_state = tier_list.get_at(&deps.storage, next_tier_index.into())?;
+        let next_tier = current_tier.checked_sub(1).unwrap();
+        let next_tier_deposit = config.deposit_by_tier(next_tier);
 
-        let min_deposit = next_tier_state.deposit;
-        let expected_deposit_usd = min_deposit.checked_sub(old_usd_deposit).unwrap();
+        let expected_deposit_usd = next_tier_deposit.checked_sub(old_usd_deposit).unwrap();
         let expected_deposit_scrt = band_protocol.uscrt_amount(expected_deposit_usd);
 
         let err_msg = format!(
@@ -199,10 +189,8 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     }
 
     let mut messages = Vec::with_capacity(2);
-    let new_tier_index = new_tier.checked_sub(1).unwrap();
-    let new_tier_info = tier_list.get_at(&deps.storage, new_tier_index.into())?;
+    let new_tier_deposit = config.deposit_by_tier(new_tier);
 
-    let new_tier_deposit = new_tier_info.deposit;
     let usd_refund = new_usd_deposit.checked_sub(new_tier_deposit).unwrap();
     let scrt_refund = band_protocol.uscrt_amount(usd_refund);
 
@@ -219,13 +207,9 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         messages.push(msg);
     }
 
-    let lock_period = new_tier_info.lock_period;
-    let withdraw_time = env.block.time.checked_add(lock_period).unwrap();
-
     user_info.deposit = user_info.deposit.checked_add(scrt_deposit).unwrap();
     user_info.timestamp = env.block.time;
     user_info.tier = new_tier;
-    user_info.withdraw_time = withdraw_time;
     user_infos.insert(&mut deps.storage, &sender, &user_info)?;
 
     let delegate_msg = StakingMsg::Delegate {
@@ -239,7 +223,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     let answer = to_binary(&HandleAnswer::Deposit {
         usd_deposit: Uint128(new_tier_deposit),
         scrt_deposit: Uint128(user_info.deposit),
-        tier: utils::normalize_tier(new_tier, max_tier),
+        tier: new_tier,
         status: ResponseStatus::Success,
     })?;
 
@@ -263,14 +247,10 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         .get(&deps.storage, &sender)
         .ok_or_else(|| StdError::not_found("user"))?;
 
-    let current_time = env.block.time;
-    if current_time < user_info.withdraw_time {
-        return Err(StdError::generic_err("You cannot withdraw tokens yet"));
-    }
-
     let amount = user_info.deposit;
     user_infos.remove(&mut deps.storage, &sender)?;
 
+    let current_time = env.block.time;
     let claim_time = current_time.checked_add(UNBOUND_LATENCY).unwrap();
     let withdrawal = UserWithdrawal {
         amount,
@@ -490,21 +470,7 @@ pub fn try_redelegate<S: Storage, A: Api, Q: Querier>(
 
 pub fn query_config<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> QueryResult {
     let config = Config::load(&deps.storage)?;
-    let tier_info = state::tier_info_list();
-    let length = tier_info.get_len(&deps.storage)?;
-    let tier_list = tier_info.paging(&deps.storage, 0, length)?;
-
-    let serialized_tier_list = tier_list.into_iter().map(|t| t.to_serialized()).collect();
-    let admin = deps.api.human_address(&config.admin)?;
-
-    let answer = QueryAnswer::Config {
-        admin,
-        validator: config.validator,
-        status: config.status.into(),
-        tier_list: serialized_tier_list,
-        band_oracle: config.band_oracle,
-        band_code_hash: config.band_code_hash,
-    };
+    let answer = config.to_answer(&deps.api)?;
 
     to_binary(&answer)
 }
@@ -513,13 +479,18 @@ pub fn query_user_info<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: HumanAddr,
 ) -> QueryResult {
+    let config = Config::load(&deps.storage)?;
     let canonical_address = deps.api.canonical_address(&address)?;
     let user_infos = state::user_infos();
     let user_info = user_infos
         .get(&deps.storage, &canonical_address)
-        .unwrap_or_default();
+        .unwrap_or_else(|| UserInfo {
+            tier: config.min_tier(),
+            deposit: 0,
+            timestamp: 0,
+        });
 
-    let answer = user_info.to_answer(&deps.storage)?;
+    let answer = user_info.to_answer();
     to_binary(&answer)
 }
 
@@ -550,7 +521,7 @@ pub fn query_withdrawals<S: Storage, A: Api, Q: Querier>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::UserInfo;
+    use crate::{msg::SerializedWithdrawals, state::UserInfo};
     use cosmwasm_std::{
         from_binary,
         testing::{mock_dependencies, mock_env, MockApi, MockQuerier},
@@ -580,18 +551,15 @@ mod tests {
     fn init_with_default() -> Extern<MemoryStorage, MockApi, MockQuerier> {
         let admin = HumanAddr::from("admin");
         let validator = HumanAddr::from("validator");
-        let deposits = vec![100u128, 750, 5000, 20000]
+        let deposits = vec![20000u128, 5000, 750, 100]
             .into_iter()
             .map(Into::into)
             .collect();
 
-        let day = 24 * 60 * 60;
-        let lock_periods = vec![2 * day, 5 * day, 14 * day, 31 * day];
         let init_msg = InitMsg {
             admin: Some(admin),
             validator,
             deposits,
-            lock_periods,
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
         };
@@ -620,30 +588,16 @@ mod tests {
                 admin,
                 validator,
                 status,
+                usd_deposits,
                 ..
             } => Config {
                 admin: deps.api.canonical_address(&admin).unwrap(),
                 validator,
                 status: status as u8,
+                usd_deposits: usd_deposits.iter().map(|d| d.u128()).collect(),
                 band_oracle: "band_oracle".into(),
                 band_code_hash: String::new(),
             },
-            _ => unreachable!(),
-        }
-    }
-
-    fn tier_info<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>) -> Vec<TierInfo> {
-        let msg = QueryMsg::Config {};
-        let response = query(deps, msg).unwrap();
-
-        match from_binary(&response).unwrap() {
-            QueryAnswer::Config { tier_list, .. } => tier_list
-                .into_iter()
-                .map(|t| TierInfo {
-                    deposit: t.deposit.u128(),
-                    lock_period: t.lock_period,
-                })
-                .collect(),
             _ => unreachable!(),
         }
     }
@@ -659,14 +613,35 @@ mod tests {
             QueryAnswer::UserInfo {
                 tier,
                 deposit,
-                withdraw_time,
                 timestamp,
             } => UserInfo {
                 tier,
                 deposit: deposit.u128(),
-                withdraw_time,
                 timestamp,
             },
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_withdrawals<S: Storage, A: Api, Q: Querier>(
+        deps: &Extern<S, A, Q>,
+        address: HumanAddr,
+    ) -> Vec<SerializedWithdrawals> {
+        let msg = QueryMsg::Withdrawals {
+            address,
+            start: None,
+            limit: None,
+        };
+        let response = query(deps, msg).unwrap();
+
+        match from_binary(&response).unwrap() {
+            QueryAnswer::Withdrawals {
+                amount,
+                withdrawals,
+            } => {
+                assert_eq!(amount as usize, withdrawals.len());
+                withdrawals
+            }
             _ => unreachable!(),
         }
     }
@@ -676,15 +651,13 @@ mod tests {
         let admin = HumanAddr::from("admin");
         let validator = HumanAddr::from("secretvaloper1l92u46n0d33mhkknwm7zpg0twlqqxg826990re");
 
-        let day = 24 * 60 * 60;
-        let lock_periods = vec![2 * day, 5 * day, 14 * day, 31 * day];
-        let deposits: Vec<Uint128> = vec![100u128, 750, 5000, 20000]
+        let deposits: Vec<Uint128> = vec![20000u128, 5000, 750, 100]
             .into_iter()
             .map(Into::into)
             .collect();
 
         // Wrong order
-        let wrong_deposits = vec![750u128, 100, 5000, 20000]
+        let wrong_deposits = vec![20000u128, 750, 5000, 100]
             .into_iter()
             .map(Into::into)
             .collect();
@@ -693,63 +666,32 @@ mod tests {
             admin: Some(admin.clone()),
             validator: validator.clone(),
             deposits: wrong_deposits,
-            lock_periods: lock_periods.clone(),
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
         let error = extract_error(response);
-        assert!(error.contains("Specify deposits in increasing order"));
+        assert!(error.contains("Specify deposits in decreasing order"));
 
         // Zero elements in deposits
         let init_msg = InitMsg {
             admin: Some(admin.clone()),
             validator: validator.clone(),
             deposits: vec![],
-            lock_periods: lock_periods.clone(),
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
         };
 
         let response = init_contract(init_msg);
         let error = extract_error(response);
-        assert!(error.contains("Array is empty"));
-
-        // Zero elements in lock periods
-        let init_msg = InitMsg {
-            admin: Some(admin.clone()),
-            validator: validator.clone(),
-            deposits: deposits.clone(),
-            lock_periods: vec![],
-            band_oracle: "band_oracle".into(),
-            band_code_hash: String::new(),
-        };
-
-        let response = init_contract(init_msg);
-        let error = extract_error(response);
-        assert!(error.contains("Array is empty"));
-
-        // Elements amount mismatch
-        let init_msg = InitMsg {
-            admin: Some(admin.clone()),
-            validator: validator.clone(),
-            deposits: deposits[1..].to_owned(),
-            lock_periods: lock_periods.clone(),
-            band_oracle: "band_oracle".into(),
-            band_code_hash: String::new(),
-        };
-
-        let response = init_contract(init_msg);
-        let error = extract_error(response);
-        assert!(error.contains("Arrays have different length"));
+        assert!(error.contains("Deposits array is empty"));
 
         // Init with sender
         let init_msg = InitMsg {
             admin: None,
             validator: validator.clone(),
             deposits: deposits.clone(),
-            lock_periods: lock_periods.clone(),
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
         };
@@ -757,20 +699,17 @@ mod tests {
         let deps = init_contract(init_msg).unwrap();
         let config = Config::load(&deps.storage).unwrap();
         let canonical_admin = deps.api.canonical_address(&admin).unwrap();
-        let tier_list = state::tier_info_list();
-        let length = tier_list.get_len(&deps.storage).unwrap();
+        let length = config.usd_deposits.len();
 
         assert_eq!(config.admin, canonical_admin);
         assert_eq!(config.validator, validator);
         assert_eq!(config, config_info(&deps));
-        assert_eq!(length, deposits.len() as u32);
+        assert_eq!(length, deposits.len() as usize);
 
         for index in 0..length {
-            let tier = tier_list.get_at(&deps.storage, index).unwrap();
+            let tier_deposit = config.usd_deposits[index];
             let expected_deposit = deposits[index as usize];
-            let expected_lock_period = lock_periods[index as usize];
-            assert_eq!(tier.deposit, expected_deposit.u128());
-            assert_eq!(tier.lock_period, expected_lock_period);
+            assert_eq!(tier_deposit, expected_deposit.u128());
         }
 
         // Init with custom admin
@@ -779,7 +718,6 @@ mod tests {
             admin: Some(alice.clone()),
             validator: validator.clone(),
             deposits,
-            lock_periods,
             band_oracle: "band_oracle".into(),
             band_code_hash: String::new(),
         };
@@ -856,7 +794,9 @@ mod tests {
         let alice = HumanAddr::from("alice");
 
         let alice_info = user_info(&deps, alice.clone());
-        assert_eq!(alice_info, UserInfo::default());
+        assert_eq!(alice_info.deposit, 0);
+        assert_eq!(alice_info.timestamp, 0);
+        assert_eq!(alice_info.tier, 5);
 
         let mut env = mock_env(alice.clone(), &[]);
         env.block.time = current_time();
@@ -900,16 +840,11 @@ mod tests {
             })
         );
 
-        let tier_info = tier_info(&deps);
         let alice_info = user_info(&deps, alice.clone());
 
         assert_eq!(alice_info.deposit, 200);
         assert_eq!(alice_info.tier, 4);
         assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(
-            alice_info.withdraw_time,
-            env.block.time + tier_info[0].lock_period
-        );
 
         env.block.time += 100;
         env.message.sent_funds = coins(1299, USCRT);
@@ -956,10 +891,6 @@ mod tests {
         assert_eq!(alice_info.deposit, 10000);
         assert_eq!(alice_info.tier, 2);
         assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(
-            alice_info.withdraw_time,
-            env.block.time + tier_info[2].lock_period
-        );
 
         env.block.time += 100;
         env.message.sent_funds = coins(20000, USCRT);
@@ -1006,10 +937,6 @@ mod tests {
         assert_eq!(alice_info.deposit, 40000);
         assert_eq!(alice_info.tier, 1);
         assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(
-            alice_info.withdraw_time,
-            env.block.time + tier_info[3].lock_period
-        );
 
         let response = handle(&mut deps, env, deposit_msg);
         let error = extract_error(response);
@@ -1030,65 +957,61 @@ mod tests {
 
         handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
 
-        let day = 24 * 60 * 60;
         let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 3);
         assert_eq!(alice_info.deposit, 1500);
         assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(alice_info.withdraw_time, env.block.time + 5 * day);
 
-        env.message.sent_funds = Vec::new();
-
-        // Try to withdraw tokens without waiting for locking period
-        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("You cannot withdraw tokens yet"));
-
-        // Deposit some tokens. It will reset deposit time
-        env.block.time += 365 * day;
-        env.message.sent_funds = coins(8500, USCRT);
-
-        handle(&mut deps, env.clone(), deposit_msg.clone()).unwrap();
-        let alice_info = user_info(&deps, alice.clone());
-        assert_eq!(alice_info.tier, 2);
-        assert_eq!(alice_info.deposit, 10000);
-        assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(alice_info.withdraw_time, env.block.time + 14 * day);
-
-        // Try to withdraw tokens after deposit
-        env.message.sent_funds = Vec::new();
-        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("You cannot withdraw tokens yet"));
-
-        // Withdraw tokens successfully
-        env.block.time += 14 * day;
         handle(&mut deps, env.clone(), withdraw_msg.clone()).unwrap();
         let alice_info = user_info(&deps, alice.clone());
 
-        assert_eq!(alice_info, UserInfo::default());
+        assert_eq!(alice_info.tier, 5);
+        assert_eq!(alice_info.deposit, 0);
+        assert_eq!(alice_info.timestamp, 0);
+
+        let withdrawals = get_withdrawals(&deps, alice.clone());
+        let claim_time = env.block.time + UNBOUND_LATENCY;
+
+        assert_eq!(withdrawals.len(), 1);
+        assert_eq!(withdrawals[0].amount.u128(), 1500);
+        assert_eq!(withdrawals[0].timestamp, env.block.time);
+        assert_eq!(withdrawals[0].claim_time, claim_time);
 
         // Withdraw tokens twice
-        let response = handle(&mut deps, env.clone(), withdraw_msg);
+        let response = handle(&mut deps, env.clone(), withdraw_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Not found"));
 
         // Deposit tokens during withdrawal
+        let old_block_time = env.block.time;
+        let old_claim_time = claim_time;
+
+        env.block.time = old_block_time + 1000;
         env.message.sent_funds = coins(50000, USCRT);
         handle(&mut deps, env.clone(), deposit_msg).unwrap();
 
-        let alice_info = user_info(&deps, alice);
+        let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 1);
         assert_eq!(alice_info.deposit, 40000);
         assert_eq!(alice_info.timestamp, env.block.time);
-        assert_eq!(alice_info.withdraw_time, env.block.time + 31 * day);
+
+        handle(&mut deps, env.clone(), withdraw_msg).unwrap();
+        let withdrawals = get_withdrawals(&deps, alice);
+        let claim_time = env.block.time + UNBOUND_LATENCY;
+
+        assert_eq!(withdrawals.len(), 2);
+        assert_eq!(withdrawals[0].amount.u128(), 1500);
+        assert_eq!(withdrawals[0].timestamp, old_block_time);
+        assert_eq!(withdrawals[0].claim_time, old_claim_time);
+        assert_eq!(withdrawals[1].amount.u128(), 40000);
+        assert_eq!(withdrawals[1].timestamp, env.block.time);
+        assert_eq!(withdrawals[1].claim_time, claim_time);
     }
 
     #[test]
     fn claim() {
         let mut deps = init_with_default();
         let alice = HumanAddr::from("alice");
-        let alice_canonical = deps.api.canonical_address(&alice).unwrap();
 
         let mut env = mock_env(alice.clone(), &[]);
         env.block.time = current_time();
@@ -1112,11 +1035,13 @@ mod tests {
         env.block.time += 5 * day;
         handle(&mut deps, env.clone(), withdraw_msg).unwrap();
 
-        let withdrawals = state::withdrawals_list(&alice_canonical);
-        assert_eq!(withdrawals.get_len(&deps.storage), Ok(1));
+        let withdrawals = get_withdrawals(&deps, alice.clone());
+        let claim_time = env.block.time + 21 * day;
 
-        let withdrawal = withdrawals.get_at(&deps.storage, 0).unwrap();
-        assert_eq!(env.block.time + 21 * day, withdrawal.claim_time);
+        assert_eq!(withdrawals.len(), 1);
+        assert_eq!(withdrawals[0].amount.u128(), 1500);
+        assert_eq!(withdrawals[0].timestamp, env.block.time);
+        assert_eq!(withdrawals[0].claim_time, claim_time);
 
         // Try to claim without waiting for unbond period
         let response = handle(&mut deps, env.clone(), claim_msg.clone()).unwrap();
@@ -1137,6 +1062,9 @@ mod tests {
             }
             _ => unreachable!(),
         }
+
+        let withdrawals = get_withdrawals(&deps, alice.clone());
+        assert_eq!(withdrawals.len(), 0);
 
         assert_eq!(response.messages.len(), 1);
         assert_eq!(

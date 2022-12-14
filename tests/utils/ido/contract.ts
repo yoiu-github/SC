@@ -9,30 +9,24 @@ export class IdoContract extends BaseContract {
 
   constructor(
     label = "ido",
+    path = "./build/ido.wasm",
     sscrtContract: ContractDeployInfo,
-    nftContract: ContractDeployInfo,
+    nftContract: ContractDeployInfo
   ) {
-    super(label);
+    super(label, path);
     this.sscrtContract = sscrtContract;
     this.nftContract = nftContract;
-  }
-
-  async init(
-    client: SecretNetworkClient,
-    initMsg: Ido.InitMsg,
-  ) {
-    await super.deploy(client, initMsg, "./build/ido.wasm");
   }
 
   async addWhitelist(
     client: SecretNetworkClient,
     address: string,
-    idoId?: number,
+    idoId?: number
   ): Promise<Ido.HandleAnswer.WhitelistAdd> {
     const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg.WhitelistAdd>(
       this.contractInfo,
       client.address,
-      { whitelist_add: { addresses: [address], ido_id: idoId } },
+      { whitelist_add: { addresses: [address], ido_id: idoId } }
     );
 
     const response = await broadcastWithCheck(client, [addWhitelistMsg]);
@@ -41,7 +35,7 @@ export class IdoContract extends BaseContract {
 
   async inWhitelist(
     client: SecretNetworkClient,
-    idoId?: number,
+    idoId?: number
   ): Promise<Ido.QueryAnswer.InWhitelist> {
     const query: Ido.QueryMsg.InWhitelist = {
       in_whitelist: { address: client.address, ido_id: idoId },
@@ -55,28 +49,27 @@ export class IdoContract extends BaseContract {
     idoId: number,
     amount: number,
     price: number,
-    token_id?: string,
+    token_id?: string
   ): Promise<Ido.HandleAnswer.BuyTokens> {
     const sscrtAmount = amount * price;
     const depositMsg = getExecuteMsg<Snip20.HandleMsg.Deposit>(
       this.sscrtContract,
       client.address,
       { deposit: {} },
-      [{ denom: "uscrt", amount: sscrtAmount.toString() }],
+      [{ denom: "uscrt", amount: sscrtAmount.toString() }]
     );
 
-    const increaseAllowanceMsg = getExecuteMsg<
-      Snip20.HandleMsg.IncreaseAllowance
-    >(
-      this.sscrtContract,
-      client.address,
-      {
-        increase_allowance: {
-          spender: this.contractInfo.address,
-          amount: sscrtAmount.toString(),
-        },
-      },
-    );
+    const increaseAllowanceMsg =
+      getExecuteMsg<Snip20.HandleMsg.IncreaseAllowance>(
+        this.sscrtContract,
+        client.address,
+        {
+          increase_allowance: {
+            spender: this.contractInfo.address,
+            amount: sscrtAmount.toString(),
+          },
+        }
+      );
 
     const messages = [];
     messages.push(depositMsg);
@@ -92,7 +85,7 @@ export class IdoContract extends BaseContract {
       const setViewingKey = getExecuteMsg<Snip721.HandleMsg.SetViewingKey>(
         this.nftContract,
         client.address,
-        { set_viewing_key: { key: token.viewing_key } },
+        { set_viewing_key: { key: token.viewing_key } }
       );
 
       messages.push(setViewingKey);
@@ -101,7 +94,7 @@ export class IdoContract extends BaseContract {
     const buyTokensMsg = getExecuteMsg<Ido.HandleMsg.BuyTokens>(
       this.contractInfo,
       client.address,
-      { buy_tokens: { ido_id: idoId, amount: amount.toString(), token } },
+      { buy_tokens: { ido_id: idoId, amount: amount.toString(), token } }
     );
 
     messages.push(buyTokensMsg);
@@ -112,7 +105,7 @@ export class IdoContract extends BaseContract {
   async startIdo(
     client: SecretNetworkClient,
     startIdoMsg: Ido.HandleMsg.StartIdo,
-    snip20Contract: ContractDeployInfo,
+    snip20Contract: ContractDeployInfo
   ): Promise<Ido.HandleAnswer.StartIdo> {
     const amount = startIdoMsg.start_ido.total_amount;
 
@@ -126,12 +119,12 @@ export class IdoContract extends BaseContract {
             spender: this.contractInfo.address,
             amount,
           },
-        },
-      ),
+        }
+      )
     );
 
     messages.push(
-      getExecuteMsg(this.contractInfo, client.address, startIdoMsg),
+      getExecuteMsg(this.contractInfo, client.address, startIdoMsg)
     );
 
     const response = await broadcastWithCheck(client, messages);
@@ -140,14 +133,14 @@ export class IdoContract extends BaseContract {
 
   async recvTokens(
     client: SecretNetworkClient,
-    idoId: number,
+    idoId: number
   ): Promise<Ido.HandleAnswer.RecvTokens> {
     const recvTokensMsg = getExecuteMsg<Ido.HandleMsg.RecvTokens>(
       this.contractInfo,
       client.address,
       {
         recv_tokens: { ido_id: idoId },
-      },
+      }
     );
 
     const response = await broadcastWithCheck(client, [recvTokensMsg]);
@@ -156,7 +149,7 @@ export class IdoContract extends BaseContract {
 
   async idoInfo(
     client: SecretNetworkClient,
-    idoId: number,
+    idoId: number
   ): Promise<Ido.QueryAnswer.IdoInfo> {
     const query: Ido.QueryMsg.IdoInfo = { ido_info: { ido_id: idoId } };
     return await super.query(client, query);
@@ -166,7 +159,7 @@ export class IdoContract extends BaseContract {
     client: SecretNetworkClient,
     idoId: number,
     start = 0,
-    limit = 50,
+    limit = 50
   ): Promise<Ido.QueryAnswer.Purchases> {
     const query: Ido.QueryMsg.Purchases = {
       purchases: { address: client.address, ido_id: idoId, start, limit },
@@ -179,7 +172,7 @@ export class IdoContract extends BaseContract {
     client: SecretNetworkClient,
     idoId: number,
     start = 0,
-    limit = 50,
+    limit = 50
   ): Promise<Ido.QueryAnswer.ArchivedPurchases> {
     const query: Ido.QueryMsg.ArchivedPurchases = {
       archived_purchases: {
@@ -195,7 +188,7 @@ export class IdoContract extends BaseContract {
 
   async userInfo(
     client: SecretNetworkClient,
-    idoId?: number,
+    idoId?: number
   ): Promise<Ido.QueryAnswer.UserInfo> {
     const query: Ido.QueryMsg.UserInfo = {
       user_info: { address: client.address, ido_id: idoId },

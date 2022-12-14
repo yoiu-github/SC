@@ -13,7 +13,6 @@ export type UserInfo = {
   user_info: {
     tier: number;
     deposit: Uint128;
-    withdraw_time: number;
     timestamp: number;
   };
 };

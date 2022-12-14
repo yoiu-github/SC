@@ -35,7 +35,6 @@ pub struct InitMsg {
     pub admin: Option<HumanAddr>,
     pub validator: HumanAddr,
     pub deposits: Vec<Uint128>,
-    pub lock_periods: Vec<u64>,
     pub band_oracle: HumanAddr,
     pub band_code_hash: String,
 }
@@ -122,13 +121,6 @@ pub enum QueryMsg {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct SerializedTierInfo {
-    pub deposit: Uint128,
-    pub lock_period: u64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
 pub struct SerializedWithdrawals {
     pub amount: Uint128,
     pub claim_time: u64,
@@ -142,14 +134,13 @@ pub enum QueryAnswer {
         admin: HumanAddr,
         validator: HumanAddr,
         status: ContractStatus,
-        tier_list: Vec<SerializedTierInfo>,
         band_oracle: HumanAddr,
         band_code_hash: String,
+        usd_deposits: Vec<Uint128>,
     },
     UserInfo {
         tier: u8,
         deposit: Uint128,
-        withdraw_time: u64,
         timestamp: u64,
     },
     Withdrawals {

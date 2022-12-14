@@ -3,12 +3,8 @@ import { broadcastWithCheck, getExecuteMsg, Tier } from "..";
 import { BaseContract } from "../baseContract";
 
 export class Contract extends BaseContract {
-  constructor(label = "tier") {
-    super(label);
-  }
-
-  async init(client: SecretNetworkClient, initMsg: Tier.InitMsg) {
-    await super.deploy(client, initMsg, "./build/tier.wasm");
+  constructor(label = "tier", path = "./build/tier.wasm") {
+    super(label, path);
   }
 
   async userInfo(

@@ -5,22 +5,18 @@ import { BaseContract } from "../baseContract";
 export type Snip20ContractType = "snip20" | "sscrt";
 
 export class Snip20Contract extends BaseContract {
-  path: string;
-
   constructor(label = "snip20", contractType: Snip20ContractType = "snip20") {
-    super(label);
-
+    let path;
     if (contractType == "snip20") {
-      this.path = "./build/snip20.wasm";
+      path = "./build/snip20.wasm";
     } else {
-      this.path = "./build/sscrt.wasm";
+      path = "./build/sscrt.wasm";
     }
+
+    super(label, path);
   }
 
-  async init(
-    client: SecretNetworkClient,
-    initMsg?: Snip20.InitMsg,
-  ) {
+  async init(client: SecretNetworkClient, initMsg?: Snip20.InitMsg) {
     initMsg = initMsg || {
       name: "Snip20Token",
       symbol: "SNIP",
@@ -31,20 +27,20 @@ export class Snip20Contract extends BaseContract {
       },
     };
 
-    await super.deploy(client, initMsg, this.path);
+    await super.init(client, initMsg);
   }
 
   async mint(
     client: SecretNetworkClient,
     recipient: string,
-    amount = 100_000_000,
+    amount = 100_000_000
   ): Promise<Snip20.HandleAnswer.Mint> {
     const mintMsg = getExecuteMsg<Snip20.HandleMsg.Mint>(
       this.contractInfo,
       client.address,
       {
         mint: { recipient, amount: amount.toString() },
-      },
+      }
     );
 
     const response = await broadcastWithCheck(client, [mintMsg]);
@@ -53,14 +49,14 @@ export class Snip20Contract extends BaseContract {
 
   async getBalance(
     client: SecretNetworkClient,
-    key?: string,
+    key?: string
   ): Promise<Snip20.QueryAnswer.Balance> {
     key = key || "random string";
 
     const setViewingKey = getExecuteMsg<Snip20.HandleMsg.SetViewingKey>(
       this.contractInfo,
       client.address,
-      { set_viewing_key: { key } },
+      { set_viewing_key: { key } }
     );
 
     await broadcastWithCheck(client, [setViewingKey]);
