@@ -27,7 +27,7 @@ describe("Tier", () => {
     deposit: number
   ) => {
     assert.ok(
-      Math.abs(Number.parseInt(userInfo.user_info.deposit) - deposit) < 10
+      Math.abs(Number.parseInt(userInfo.user_info.scrt_deposit) - deposit) < 10
     );
   };
 
@@ -77,12 +77,13 @@ describe("Tier", () => {
 
     const userInfo = await tierContract.userInfo(user);
     assert.equal(userInfo.user_info.tier, 5);
-    assert.equal(userInfo.user_info.deposit, 0);
+    assert.equal(userInfo.user_info.usd_deposit, 0);
+    assert.equal(userInfo.user_info.scrt_deposit, 0);
   });
 
   it("Tier 4", async () => {
     let userInfo = await tierContract.userInfo(user);
-    const initialDeposit = Number.parseInt(userInfo.user_info.deposit);
+    const initialDeposit = Number.parseInt(userInfo.user_info.scrt_deposit);
     const amount = await bandContract.calculateUscrtAmount(admin, 100);
 
     await tierContract.deposit(user, amount);
@@ -93,7 +94,7 @@ describe("Tier", () => {
 
   it("Tier 3", async () => {
     let userInfo = await tierContract.userInfo(user);
-    const initialDeposit = Number.parseInt(userInfo.user_info.deposit);
+    const initialDeposit = Number.parseInt(userInfo.user_info.scrt_deposit);
     const amount = await bandContract.calculateUscrtAmount(admin, 100);
 
     await tierContract.deposit(user, amount);
@@ -130,7 +131,7 @@ describe("Tier", () => {
   it("Tier 2", async () => {
     const amount = await bandContract.calculateUscrtAmount(admin, 300);
     let userInfo = await tierContract.userInfo(user);
-    const initialDeposit = Number.parseInt(userInfo.user_info.deposit);
+    const initialDeposit = Number.parseInt(userInfo.user_info.scrt_deposit);
 
     await tierContract.deposit(user, amount);
     userInfo = await tierContract.userInfo(user);
@@ -143,7 +144,7 @@ describe("Tier", () => {
     const expectedAmount = await bandContract.calculateUscrtAmount(admin, 500);
 
     let userInfo = await tierContract.userInfo(user);
-    const initialDeposit = Number.parseInt(userInfo.user_info.deposit);
+    const initialDeposit = Number.parseInt(userInfo.user_info.scrt_deposit);
 
     await tierContract.deposit(user, amount);
     userInfo = await tierContract.userInfo(user);
@@ -176,13 +177,14 @@ describe("Tier", () => {
 
   it("Withdraw tokens", async () => {
     let userInfo = await tierContract.userInfo(user);
-    let deposit = userInfo.user_info.deposit;
+    let deposit = userInfo.user_info.scrt_deposit;
 
     await tierContract.withdraw(user);
     userInfo = await tierContract.userInfo(user);
 
     assert.equal(userInfo.user_info.tier, 5);
-    assert.equal(userInfo.user_info.deposit, 0);
+    assert.equal(userInfo.user_info.usd_deposit, 0);
+    assert.equal(userInfo.user_info.scrt_deposit, 0);
     assert.equal(userInfo.user_info.timestamp, 0);
 
     const withdrawals = await tierContract.withdrawals(user);

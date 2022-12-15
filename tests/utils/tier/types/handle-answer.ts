@@ -12,7 +12,10 @@ export type ChangeStatus = {
 
 export type Deposit = {
   deposit: {
+    tier: number;
     status: ResponseStatus;
+    usd_deposit: string;
+    scrt_deposit: string;
   };
 };
 
@@ -24,18 +27,21 @@ export type Withdraw = {
 
 export type Claim = {
   claim: {
+    amount: string;
     status: ResponseStatus;
   };
 };
 
 export type WithdrawRewards = {
   withdraw_rewards: {
+    amount: string;
     status: ResponseStatus;
   };
 };
 
 export type Redelegate = {
   redelegate: {
+    amount: string;
     status: ResponseStatus;
   };
 };

@@ -12,8 +12,9 @@ export type Config = {
 export type UserInfo = {
   user_info: {
     tier: number;
-    deposit: Uint128;
     timestamp: number;
+    usd_deposit: Uint128;
+    scrt_deposit: Uint128;
   };
 };
 

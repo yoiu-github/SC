@@ -87,16 +87,18 @@ impl Config {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserInfo {
     pub tier: u8,
-    pub deposit: u128,
     pub timestamp: u64,
+    pub usd_deposit: u128,
+    pub scrt_deposit: u128,
 }
 
 impl UserInfo {
     pub fn to_answer(&self) -> QueryAnswer {
         QueryAnswer::UserInfo {
             tier: self.tier,
-            deposit: Uint128(self.deposit),
             timestamp: self.timestamp,
+            usd_deposit: Uint128(self.usd_deposit),
+            scrt_deposit: Uint128(self.scrt_deposit),
         }
     }
 }

@@ -140,8 +140,9 @@ pub enum QueryAnswer {
     },
     UserInfo {
         tier: u8,
-        deposit: Uint128,
         timestamp: u64,
+        usd_deposit: Uint128,
+        scrt_deposit: Uint128,
     },
     Withdrawals {
         amount: u32,

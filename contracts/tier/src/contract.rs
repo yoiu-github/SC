@@ -155,16 +155,17 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     let sender = deps.api.canonical_address(&env.message.sender)?;
     let user_infos = state::user_infos();
+    let min_tier = config.min_tier();
+
     let mut user_info = user_infos
         .get(&deps.storage, &sender)
-        .unwrap_or_else(|| state::UserInfo {
-            tier: config.min_tier(),
-            deposit: 0,
-            timestamp: 0,
+        .unwrap_or(state::UserInfo {
+            tier: min_tier,
+            ..Default::default()
         });
 
     let current_tier = user_info.tier;
-    let old_usd_deposit = band_protocol.usd_amount(user_info.deposit);
+    let old_usd_deposit = user_info.usd_deposit;
     let new_usd_deposit = old_usd_deposit.checked_add(usd_deposit).unwrap();
 
     let new_tier = config.tier_by_deposit(new_usd_deposit);
@@ -207,9 +208,10 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
         messages.push(msg);
     }
 
-    user_info.deposit = user_info.deposit.checked_add(scrt_deposit).unwrap();
-    user_info.timestamp = env.block.time;
     user_info.tier = new_tier;
+    user_info.timestamp = env.block.time;
+    user_info.usd_deposit = new_tier_deposit;
+    user_info.scrt_deposit = user_info.scrt_deposit.checked_add(scrt_deposit).unwrap();
     user_infos.insert(&mut deps.storage, &sender, &user_info)?;
 
     let delegate_msg = StakingMsg::Delegate {
@@ -221,8 +223,8 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
     messages.push(msg);
 
     let answer = to_binary(&HandleAnswer::Deposit {
-        usd_deposit: Uint128(new_tier_deposit),
-        scrt_deposit: Uint128(user_info.deposit),
+        usd_deposit: Uint128(user_info.usd_deposit),
+        scrt_deposit: Uint128(user_info.scrt_deposit),
         tier: new_tier,
         status: ResponseStatus::Success,
     })?;
@@ -247,7 +249,7 @@ pub fn try_withdraw<S: Storage, A: Api, Q: Querier>(
         .get(&deps.storage, &sender)
         .ok_or_else(|| StdError::not_found("user"))?;
 
-    let amount = user_info.deposit;
+    let amount = user_info.scrt_deposit;
     user_infos.remove(&mut deps.storage, &sender)?;
 
     let current_time = env.block.time;
@@ -482,12 +484,13 @@ pub fn query_user_info<S: Storage, A: Api, Q: Querier>(
     let config = Config::load(&deps.storage)?;
     let canonical_address = deps.api.canonical_address(&address)?;
     let user_infos = state::user_infos();
+
+    let min_tier = config.min_tier();
     let user_info = user_infos
         .get(&deps.storage, &canonical_address)
-        .unwrap_or_else(|| UserInfo {
-            tier: config.min_tier(),
-            deposit: 0,
-            timestamp: 0,
+        .unwrap_or(UserInfo {
+            tier: min_tier,
+            ..Default::default()
         });
 
     let answer = user_info.to_answer();
@@ -612,12 +615,14 @@ mod tests {
         match from_binary(&response).unwrap() {
             QueryAnswer::UserInfo {
                 tier,
-                deposit,
                 timestamp,
+                usd_deposit,
+                scrt_deposit,
             } => UserInfo {
                 tier,
-                deposit: deposit.u128(),
                 timestamp,
+                usd_deposit: usd_deposit.u128(),
+                scrt_deposit: scrt_deposit.u128(),
             },
             _ => unreachable!(),
         }
@@ -794,7 +799,8 @@ mod tests {
         let alice = HumanAddr::from("alice");
 
         let alice_info = user_info(&deps, alice.clone());
-        assert_eq!(alice_info.deposit, 0);
+        assert_eq!(alice_info.scrt_deposit, 0);
+        assert_eq!(alice_info.usd_deposit, 0);
         assert_eq!(alice_info.timestamp, 0);
         assert_eq!(alice_info.tier, 5);
 
@@ -842,7 +848,8 @@ mod tests {
 
         let alice_info = user_info(&deps, alice.clone());
 
-        assert_eq!(alice_info.deposit, 200);
+        assert_eq!(alice_info.scrt_deposit, 200);
+        assert_eq!(alice_info.usd_deposit, 100);
         assert_eq!(alice_info.tier, 4);
         assert_eq!(alice_info.timestamp, env.block.time);
 
@@ -888,7 +895,8 @@ mod tests {
         );
 
         let alice_info = user_info(&deps, alice.clone());
-        assert_eq!(alice_info.deposit, 10000);
+        assert_eq!(alice_info.scrt_deposit, 10000);
+        assert_eq!(alice_info.usd_deposit, 5000);
         assert_eq!(alice_info.tier, 2);
         assert_eq!(alice_info.timestamp, env.block.time);
 
@@ -934,7 +942,8 @@ mod tests {
         );
 
         let alice_info = user_info(&deps, alice);
-        assert_eq!(alice_info.deposit, 40000);
+        assert_eq!(alice_info.scrt_deposit, 40000);
+        assert_eq!(alice_info.usd_deposit, 20000);
         assert_eq!(alice_info.tier, 1);
         assert_eq!(alice_info.timestamp, env.block.time);
 
@@ -959,14 +968,16 @@ mod tests {
 
         let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 3);
-        assert_eq!(alice_info.deposit, 1500);
+        assert_eq!(alice_info.usd_deposit, 750);
+        assert_eq!(alice_info.scrt_deposit, 1500);
         assert_eq!(alice_info.timestamp, env.block.time);
 
         handle(&mut deps, env.clone(), withdraw_msg.clone()).unwrap();
         let alice_info = user_info(&deps, alice.clone());
 
         assert_eq!(alice_info.tier, 5);
-        assert_eq!(alice_info.deposit, 0);
+        assert_eq!(alice_info.usd_deposit, 0);
+        assert_eq!(alice_info.scrt_deposit, 0);
         assert_eq!(alice_info.timestamp, 0);
 
         let withdrawals = get_withdrawals(&deps, alice.clone());
@@ -992,7 +1003,8 @@ mod tests {
 
         let alice_info = user_info(&deps, alice.clone());
         assert_eq!(alice_info.tier, 1);
-        assert_eq!(alice_info.deposit, 40000);
+        assert_eq!(alice_info.usd_deposit, 20000);
+        assert_eq!(alice_info.scrt_deposit, 40000);
         assert_eq!(alice_info.timestamp, env.block.time);
 
         handle(&mut deps, env.clone(), withdraw_msg).unwrap();
