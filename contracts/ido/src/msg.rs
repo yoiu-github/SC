@@ -32,8 +32,6 @@ pub struct InitMsg {
     pub tier_contract_hash: String,
     pub nft_contract: HumanAddr,
     pub nft_contract_hash: String,
-    pub token_contract: HumanAddr,
-    pub token_contract_hash: String,
     pub whitelist: Option<Vec<HumanAddr>>,
 }
 
@@ -43,10 +41,10 @@ impl InitMsg {
             return Err(StdError::generic_err("Specify max payments array"));
         }
 
-        let is_sorted = self.max_payments.as_slice().windows(2).all(|v| v[0] < v[1]);
+        let is_sorted = self.max_payments.as_slice().windows(2).all(|v| v[0] > v[1]);
         if !is_sorted {
             return Err(StdError::generic_err(
-                "Specify max payments in increasing order",
+                "Specify max payments in decreasing order",
             ));
         }
 
@@ -56,6 +54,16 @@ impl InitMsg {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PaymentMethod {
+    Native,
+    Token {
+        contract: HumanAddr,
+        code_hash: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -75,6 +83,7 @@ pub enum HandleMsg {
         token_contract: HumanAddr,
         token_contract_hash: String,
         price: Uint128,
+        payment: PaymentMethod,
         total_amount: Uint128,
         tokens_per_tier: Option<Vec<Uint128>>,
         whitelist: Option<Vec<HumanAddr>>,
@@ -202,8 +211,6 @@ pub enum QueryAnswer {
         tier_contract_hash: String,
         nft_contract: HumanAddr,
         nft_contract_hash: String,
-        token_contract: HumanAddr,
-        token_contract_hash: String,
         max_payments: Vec<Uint128>,
         lock_periods: Vec<u64>,
     },
@@ -218,6 +225,7 @@ pub enum QueryAnswer {
         token_contract_hash: String,
         price: Uint128,
         participants: u64,
+        payment: PaymentMethod,
         sold_amount: Uint128,
         total_tokens_amount: Uint128,
         total_payment: Uint128,

@@ -17,9 +17,7 @@
             "nft_contract",
             "nft_contract_hash",
             "tier_contract",
-            "tier_contract_hash",
-            "token_contract",
-            "token_contract_hash"
+            "tier_contract_hash"
           ],
           "properties": {
             "admin": {
@@ -49,12 +47,6 @@
               "$ref": "#/definitions/HumanAddr"
             },
             "tier_contract_hash": {
-              "type": "string"
-            },
-            "token_contract": {
-              "$ref": "#/definitions/HumanAddr"
-            },
-            "token_contract_hash": {
               "type": "string"
             }
           }
@@ -94,6 +86,7 @@
             "admin",
             "end_time",
             "participants",
+            "payment",
             "price",
             "sold_amount",
             "start_time",
@@ -116,6 +109,9 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
+            },
+            "payment": {
+              "$ref": "#/definitions/PaymentMethod"
             },
             "price": {
               "$ref": "#/definitions/Uint128"
@@ -311,6 +307,39 @@
   "definitions": {
     "HumanAddr": {
       "type": "string"
+    },
+    "PaymentMethod": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "native"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "token"
+          ],
+          "properties": {
+            "token": {
+              "type": "object",
+              "required": [
+                "code_hash",
+                "contract"
+              ],
+              "properties": {
+                "code_hash": {
+                  "type": "string"
+                },
+                "contract": {
+                  "$ref": "#/definitions/HumanAddr"
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "PurchaseAnswer": {
       "type": "object",

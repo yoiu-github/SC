@@ -1,4 +1,4 @@
-use crate::msg::{PurchaseAnswer, QueryAnswer};
+use crate::msg::{PaymentMethod, PurchaseAnswer, QueryAnswer};
 use cosmwasm_std::{Api, CanonicalAddr, ReadonlyStorage, StdResult, Storage, Uint128};
 use secret_toolkit_storage::{AppendStore, DequeStore, Item, Keymap};
 use serde::{Deserialize, Serialize};
@@ -55,8 +55,6 @@ pub struct Config {
     pub tier_contract_hash: String,
     pub nft_contract: CanonicalAddr,
     pub nft_contract_hash: String,
-    pub token_contract: CanonicalAddr,
-    pub token_contract_hash: String,
     pub max_payments: Vec<u128>,
     pub lock_periods: Vec<u64>,
 }
@@ -74,7 +72,6 @@ impl Config {
         let admin = api.human_address(&self.admin)?;
         let tier_contract = api.human_address(&self.tier_contract)?;
         let nft_contract = api.human_address(&self.nft_contract)?;
-        let token_contract = api.human_address(&self.token_contract)?;
         let max_payments = self.max_payments.into_iter().map(Uint128).collect();
 
         Ok(QueryAnswer::Config {
@@ -83,8 +80,6 @@ impl Config {
             tier_contract_hash: self.tier_contract_hash,
             nft_contract,
             nft_contract_hash: self.nft_contract_hash,
-            token_contract,
-            token_contract_hash: self.token_contract_hash,
             max_payments,
             lock_periods: self.lock_periods,
         })
@@ -134,6 +129,8 @@ pub struct Ido {
     pub end_time: u64,
     pub token_contract: CanonicalAddr,
     pub token_contract_hash: String,
+    pub payment_token_contract: Option<CanonicalAddr>,
+    pub payment_token_hash: Option<String>,
     pub price: u128,
     pub participants: u64,
     pub sold_amount: u128,
@@ -184,6 +181,10 @@ impl Ido {
         current_time >= self.start_time && current_time < self.end_time
     }
 
+    pub fn is_native_payment(&self) -> bool {
+        self.payment_token_contract.is_none() && self.payment_token_hash.is_none()
+    }
+
     pub fn remaining_tokens_per_tier(&self, tier: u8) -> u128 {
         if let Some(ref tokens_per_tier) = self.remaining_tokens_per_tier {
             tokens_per_tier[tier as usize]
@@ -202,6 +203,18 @@ impl Ido {
         let admin = api.human_address(&self.admin)?;
         let token_contract = api.human_address(&self.token_contract)?;
 
+        let payment = if self.is_native_payment() {
+            PaymentMethod::Native
+        } else {
+            let payment_contract = api.human_address(&self.payment_token_contract.unwrap())?;
+            let payment_contract_hash = self.payment_token_hash.unwrap();
+
+            PaymentMethod::Token {
+                contract: payment_contract,
+                code_hash: payment_contract_hash,
+            }
+        };
+
         Ok(QueryAnswer::IdoInfo {
             admin,
             start_time: self.start_time,
@@ -209,6 +222,7 @@ impl Ido {
             token_contract,
             token_contract_hash: self.token_contract_hash,
             price: Uint128(self.price),
+            payment,
             participants: self.participants,
             sold_amount: Uint128(self.sold_amount),
             total_tokens_amount: Uint128(self.total_tokens_amount),

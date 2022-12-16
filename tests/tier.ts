@@ -10,7 +10,7 @@ describe("Tier", () => {
   const endpoint = "https://api.pulsar.scrttestnet.com";
 
   const tierDeposits = ["1000", "500", "200", "100"];
-  const tierContract = new Tier.Contract("Tier");
+  const tierContract = new Tier.Contract();
   const bandContract = new Band.Contract();
 
   bandContract.setContractInfo({

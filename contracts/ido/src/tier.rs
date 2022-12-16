@@ -5,7 +5,6 @@ use secret_toolkit_snip721::{
 };
 use secret_toolkit_utils::Query;
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,13 +22,13 @@ pub enum TierReponse {
     UserInfo { tier: u8 },
 }
 
-fn find_tier_in_metadata(metadata: Metadata) -> u8 {
+fn find_tier_in_metadata(metadata: Metadata) -> Option<u8> {
     let attrubutes = match metadata.extension {
         Some(Extension {
             attributes: Some(attributes),
             ..
         }) => attributes,
-        _ => return 0,
+        _ => return None,
     };
 
     for attribute in attrubutes {
@@ -40,12 +39,12 @@ fn find_tier_in_metadata(metadata: Metadata) -> u8 {
             }
 
             if let Ok(tier) = attribute.value.parse() {
-                return tier;
+                return Some(tier);
             }
         }
     }
 
-    0
+    None
 }
 
 fn get_tier_from_nft_contract<S: Storage, A: Api, Q: Querier>(
@@ -53,7 +52,7 @@ fn get_tier_from_nft_contract<S: Storage, A: Api, Q: Querier>(
     address: &HumanAddr,
     config: &Config,
     token: NftToken,
-) -> StdResult<u8> {
+) -> StdResult<Option<u8>> {
     let nft_contract = deps.api.human_address(&config.nft_contract)?;
     let token_viewer = ViewerInfo {
         address: address.clone(),
@@ -70,13 +69,13 @@ fn get_tier_from_nft_contract<S: Storage, A: Api, Q: Querier>(
     )?;
 
     if nft_info.access.owner.as_ref() != Some(address) {
-        return Ok(0);
+        return Ok(None);
     }
 
     if let Some(public_metadata) = nft_info.info {
         let tier = find_tier_in_metadata(public_metadata);
-        if tier != 0 {
-            return Ok(tier);
+        if let Some(tier) = tier {
+            return Ok(Some(tier));
         }
     };
 
@@ -117,15 +116,14 @@ pub fn get_tier_index<S: Storage, A: Api, Q: Querier>(
     let config = Config::load(&deps.storage)?;
     let from_nft_contract = token
         .map(|token| get_tier_from_nft_contract(deps, &address, &config, token))
-        .unwrap_or(Ok(0))?;
+        .unwrap_or(Ok(None))?;
 
-    let from_tier_contract = get_tier_from_tier_contract(deps, address, &config)?;
-    let tier = max(from_nft_contract, from_tier_contract);
-
-    if tier == 0 {
-        Ok(0)
-    } else {
-        let max_tier = config.max_payments.len() as u8;
-        Ok(max_tier.checked_sub(tier).unwrap())
+    let mut tier = get_tier_from_tier_contract(deps, address, &config)?;
+    if let Some(nft_tier) = from_nft_contract {
+        if nft_tier < tier {
+            tier = nft_tier
+        }
     }
+
+    Ok(tier.checked_sub(1).unwrap())
 }

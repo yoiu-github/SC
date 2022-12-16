@@ -8,9 +8,7 @@
     "nft_contract",
     "nft_contract_hash",
     "tier_contract",
-    "tier_contract_hash",
-    "token_contract",
-    "token_contract_hash"
+    "tier_contract_hash"
   ],
   "properties": {
     "admin": {
@@ -47,12 +45,6 @@
       "$ref": "#/definitions/HumanAddr"
     },
     "tier_contract_hash": {
-      "type": "string"
-    },
-    "token_contract": {
-      "$ref": "#/definitions/HumanAddr"
-    },
-    "token_contract_hash": {
       "type": "string"
     },
     "whitelist": {

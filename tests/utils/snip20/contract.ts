@@ -47,10 +47,42 @@ export class Snip20Contract extends BaseContract {
     return response[0] as Snip20.HandleAnswer.Mint;
   }
 
-  async getBalance(
+  async deposit(
     client: SecretNetworkClient,
-    key?: string
-  ): Promise<Snip20.QueryAnswer.Balance> {
+    amount: number
+  ): Promise<Snip20.HandleAnswer.Deposit> {
+    const depositMsg = getExecuteMsg<Snip20.HandleMsg.Deposit>(
+      this.contractInfo,
+      client.address,
+      { deposit: {} },
+      [{ denom: "uscrt", amount: amount.toString() }]
+    );
+
+    const response = await broadcastWithCheck(client, [depositMsg]);
+    return response[0] as Snip20.HandleAnswer.Deposit;
+  }
+
+  async increaseAllowance(
+    client: SecretNetworkClient,
+    spender: string,
+    amount: number
+  ): Promise<Snip20.HandleAnswer.IncreaseAllowance> {
+    const mintMsg = getExecuteMsg<Snip20.HandleMsg.IncreaseAllowance>(
+      this.contractInfo,
+      client.address,
+      {
+        increase_allowance: {
+          amount: amount.toString(),
+          spender,
+        },
+      }
+    );
+
+    const response = await broadcastWithCheck(client, [mintMsg]);
+    return response[0] as Snip20.HandleAnswer.IncreaseAllowance;
+  }
+
+  async getBalance(client: SecretNetworkClient, key?: string): Promise<number> {
     key = key || "random string";
 
     const setViewingKey = getExecuteMsg<Snip20.HandleMsg.SetViewingKey>(
@@ -64,6 +96,8 @@ export class Snip20Contract extends BaseContract {
       balance: { address: client.address, key },
     };
 
-    return await super.query(client, query);
+    return await super
+      .query<any, Snip20.QueryAnswer.Balance>(client, query)
+      .then((b) => Number.parseInt(b.balance?.amount) || 0);
   }
 }

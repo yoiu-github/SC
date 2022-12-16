@@ -53,12 +53,13 @@
         "user_info": {
           "type": "object",
           "required": [
-            "deposit",
+            "scrt_deposit",
             "tier",
-            "timestamp"
+            "timestamp",
+            "usd_deposit"
           ],
           "properties": {
-            "deposit": {
+            "scrt_deposit": {
               "$ref": "#/definitions/Uint128"
             },
             "tier": {
@@ -70,6 +71,9 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
+            },
+            "usd_deposit": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }

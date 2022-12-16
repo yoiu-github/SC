@@ -12,6 +12,15 @@ export type ChangeStatus = {
   };
 };
 
+export type PaymentMethod =
+  | "native"
+  | {
+      token: {
+        contract: HumanAddr;
+        code_hash: string;
+      };
+    };
+
 export type StartIdo = {
   start_ido: {
     end_time: number;
@@ -23,6 +32,7 @@ export type StartIdo = {
     tokens_per_tier?: Uint128[] | null;
     total_amount: Uint128;
     whitelist?: HumanAddr[] | null;
+    payment: PaymentMethod;
   };
 };
 

@@ -8,7 +8,5 @@ export interface InitMsg {
   nft_contract_hash: string;
   tier_contract: HumanAddr;
   tier_contract_hash: string;
-  token_contract: HumanAddr;
-  token_contract_hash: string;
   whitelist?: HumanAddr[] | null;
 }

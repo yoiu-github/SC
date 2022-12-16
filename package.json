@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "npx ts-mocha -b -p ./tsconfig.json -t 1000000 tests/tier.ts"
+    "test": "npx ts-mocha -b -p ./tsconfig.json -t 1000000 tests/*.ts"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.1",

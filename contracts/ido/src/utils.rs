@@ -3,7 +3,7 @@ use crate::{
     state::{self, Config, Ido},
 };
 use cosmwasm_std::{
-    Api, Extern, HumanAddr, Querier, ReadonlyStorage, StdError, StdResult, Storage,
+    Api, Env, Extern, HumanAddr, Querier, ReadonlyStorage, StdError, StdResult, Storage,
 };
 
 pub fn assert_contract_active<S: ReadonlyStorage>(storage: &S) -> StdResult<()> {
@@ -93,4 +93,18 @@ pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
     } else {
         Err(StdError::generic_err("Not in whitelist"))
     }
+}
+
+pub fn sent_funds(env: &Env) -> StdResult<u128> {
+    let mut amount: u128 = 0;
+
+    for coin in &env.message.sent_funds {
+        if coin.denom != "uscrt" {
+            return Err(StdError::generic_err("Unsopported token"));
+        }
+
+        amount = amount.checked_add(coin.amount.u128()).unwrap();
+    }
+
+    Ok(amount)
 }

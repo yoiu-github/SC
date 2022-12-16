@@ -3,9 +3,9 @@ export type Config = {
     admin: HumanAddr;
     validator: HumanAddr;
     status: ContractStatus;
-    tier_list: TierInfo[];
     band_oracle: HumanAddr;
     band_code_hash: string;
+    usd_deposits: string[];
   };
 };
 
@@ -27,11 +27,6 @@ export type Withdrawals = {
 
 export type HumanAddr = string;
 export type Uint128 = string;
-
-export interface TierInfo {
-  deposit: Uint128;
-  lock_period: number;
-}
 
 export interface SerializedWithdrawals {
   amount: Uint128;

@@ -1,24 +1,25 @@
 use crate::{
     msg::{
-        ContractStatus, HandleAnswer, HandleMsg, InitMsg, NftToken, QueryAnswer, QueryMsg,
-        ResponseStatus,
+        ContractStatus, HandleAnswer, HandleMsg, InitMsg, NftToken, PaymentMethod, QueryAnswer,
+        QueryMsg, ResponseStatus,
     },
     state::{self, Config, Ido, Purchase},
     tier::get_tier_index,
     utils::{
-        assert_admin, assert_contract_active, assert_ido_admin, assert_whitelist_authority,
+        self, assert_admin, assert_contract_active, assert_ido_admin, assert_whitelist_authority,
         assert_whitelisted, in_whitelist,
     },
 };
 use cosmwasm_std::{
-    to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
-    Querier, QueryResult, StdError, Storage, Uint128,
+    coins, to_binary, Api, BankMsg, CosmosMsg, Env, Extern, HandleResponse, HandleResult,
+    HumanAddr, InitResponse, InitResult, Querier, QueryResult, StdError, Storage, Uint128,
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
 use secret_toolkit_utils::{pad_handle_result, pad_query_result};
 use std::cmp::min;
 
 pub const BLOCK_SIZE: usize = 256;
+pub const USCRT: &str = "uscrt";
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -31,7 +32,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let canonical_admin = deps.api.canonical_address(&admin)?;
     let tier_contract = deps.api.canonical_address(&msg.tier_contract)?;
     let nft_contract = deps.api.canonical_address(&msg.nft_contract)?;
-    let token_contract = deps.api.canonical_address(&msg.token_contract)?;
 
     if let Some(addresses) = msg.whitelist {
         for address in addresses {
@@ -47,10 +47,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         status: ContractStatus::Active as u8,
         tier_contract,
         nft_contract,
-        token_contract,
         tier_contract_hash: msg.tier_contract_hash,
         nft_contract_hash: msg.nft_contract_hash,
-        token_contract_hash: msg.token_contract_hash,
         lock_periods: msg.lock_periods,
         max_payments,
     };
@@ -76,6 +74,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             total_amount,
             tokens_per_tier,
             whitelist,
+            payment,
             ..
         } => {
             let mut ido = Ido::default();
@@ -89,6 +88,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ido.token_contract_hash = token_contract_hash;
             ido.price = price.u128();
             ido.total_tokens_amount = total_amount.u128();
+
+            if let PaymentMethod::Token {
+                contract,
+                code_hash,
+            } = payment
+            {
+                let payment_token_contract = deps.api.canonical_address(&contract)?;
+                ido.payment_token_contract = Some(payment_token_contract);
+                ido.payment_token_hash = Some(code_hash);
+            }
 
             if let Some(token_per_tier) = tokens_per_tier {
                 ido.remaining_tokens_per_tier =
@@ -242,7 +251,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     ido_id: u32,
-    amount: u128,
+    mut amount: u128,
     token: Option<NftToken>,
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
@@ -252,6 +261,10 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     if !ido.is_active(env.block.time) {
         return Err(StdError::generic_err("IDO is not active"));
+    }
+
+    if ido.is_native_payment() {
+        amount = utils::sent_funds(&env)?;
     }
 
     if amount == 0 {
@@ -342,19 +355,30 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     ido.save(&mut deps.storage)?;
 
-    let token_address = deps.api.human_address(&config.token_contract)?;
     let ido_admin = deps.api.human_address(&ido.admin)?;
 
-    let transfer_msg = transfer_from_msg(
-        sender,
-        ido_admin,
-        Uint128(payment),
-        None,
-        None,
-        BLOCK_SIZE,
-        config.token_contract_hash,
-        token_address,
-    )?;
+    let transfer_msg = if !ido.is_native_payment() {
+        let token_contract_canonical = ido.payment_token_contract.unwrap();
+        let token_contract_hash = ido.payment_token_hash.unwrap();
+        let token_contract = deps.api.human_address(&token_contract_canonical)?;
+
+        transfer_from_msg(
+            sender,
+            ido_admin,
+            Uint128(payment),
+            None,
+            None,
+            BLOCK_SIZE,
+            token_contract_hash,
+            token_contract,
+        )?
+    } else {
+        CosmosMsg::Bank(BankMsg::Send {
+            from_address: env.contract.address,
+            to_address: ido_admin,
+            amount: coins(amount, USCRT),
+        })
+    };
 
     let answer = to_binary(&HandleAnswer::BuyTokens {
         unlock_time,
@@ -709,14 +733,12 @@ mod test {
     fn get_init_msg() -> InitMsg {
         InitMsg {
             admin: None,
-            max_payments: [100, 500, 1000, 2000].into_iter().map(Uint128).collect(),
+            max_payments: [2000, 1000, 500, 100].into_iter().map(Uint128).collect(),
             tier_contract: HumanAddr::from("tier"),
             tier_contract_hash: String::from("tier_hash"),
             nft_contract: HumanAddr::from("nft"),
             nft_contract_hash: String::from("nft_hash"),
-            token_contract: HumanAddr::from("token"),
-            token_contract_hash: String::from("token_hash"),
-            lock_periods: vec![100, 150, 200, 250],
+            lock_periods: vec![250, 200, 150, 100],
             whitelist: None,
         }
     }
@@ -770,6 +792,10 @@ mod test {
             end_time,
             token_contract: HumanAddr(token_contract),
             token_contract_hash,
+            payment: PaymentMethod::Token {
+                contract: HumanAddr::from("token"),
+                hash: String::from("token_hash"),
+            },
             price: Uint128(price),
             total_amount: Uint128(total_amount),
             whitelist: Some(whitelist),
@@ -798,11 +824,11 @@ mod test {
         let error = extract_error(initialize_with(msg.clone()));
         assert!(error.contains("Specify max payments array"));
 
-        msg.max_payments = [1, 2, 4, 3].into_iter().map(Uint128).collect();
+        msg.max_payments = [4, 3, 1, 2].into_iter().map(Uint128).collect();
         let error = extract_error(initialize_with(msg.clone()));
-        assert!(error.contains("Specify max payments in increasing order"));
+        assert!(error.contains("Specify max payments in decreasing order"));
 
-        msg.max_payments = [1, 2, 3, 4].into_iter().map(Uint128).collect();
+        msg.max_payments = [4, 3, 2, 1].into_iter().map(Uint128).collect();
         let deps = initialize_with(msg.clone()).unwrap();
 
         let config = Config::load(&deps.storage).unwrap();
@@ -813,7 +839,6 @@ mod test {
 
         let tier_contract = deps.api.canonical_address(&msg.tier_contract).unwrap();
         let nft_contract = deps.api.canonical_address(&msg.nft_contract).unwrap();
-        let token_contract = deps.api.canonical_address(&msg.token_contract).unwrap();
 
         assert_eq!(config.admin, admin);
         assert_eq!(config.lock_periods, msg.lock_periods);
@@ -821,8 +846,6 @@ mod test {
         assert_eq!(config.tier_contract_hash, msg.tier_contract_hash);
         assert_eq!(config.nft_contract, nft_contract);
         assert_eq!(config.nft_contract_hash, msg.nft_contract_hash);
-        assert_eq!(config.token_contract, token_contract);
-        assert_eq!(config.token_contract_hash, msg.token_contract_hash);
         assert_eq!(
             config.max_payments,
             msg.max_payments
@@ -950,11 +973,17 @@ mod test {
             price,
             total_amount,
             whitelist,
+            payment,
             ..
         } = msg
         {
             let sender = deps.api.canonical_address(&env.message.sender).unwrap();
             let token_contract_canonical = deps.api.canonical_address(&token_contract).unwrap();
+
+            let payment_token_contract_canonical = match payment {
+                PaymentMethod::Native => None,
+                PaymentMethod::Token { contract, .. } => deps.api.canonical_address(&contract).ok(),
+            };
 
             assert_eq!(ido.admin, sender);
             assert_eq!(ido.start_time, start_time);
@@ -965,6 +994,8 @@ mod test {
             assert_eq!(ido.participants, 0);
             assert_eq!(ido.sold_amount, 0);
             assert_eq!(ido.total_tokens_amount, total_amount.u128());
+            assert_eq!(ido.payment_token_contract, payment_token_contract_canonical);
+            assert_eq!(ido.payment_token_hash, Some(String::from("token_hash")));
 
             let whitelist_len = whitelist.unwrap().len() as u32;
             let ido_whitelist = state::ido_whitelist(0);

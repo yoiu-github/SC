@@ -1,5 +1,5 @@
 import { SecretNetworkClient } from "secretjs";
-import { broadcastWithCheck, getExecuteMsg, Tier } from "..";
+import { Band, broadcastWithCheck, currentTime, getExecuteMsg, Tier } from "..";
 import { BaseContract } from "../baseContract";
 
 export class Contract extends BaseContract {
@@ -96,25 +96,35 @@ export class Contract extends BaseContract {
     return response[0] as Tier.HandleAnswer.Withdraw;
   }
 
-  async setTier(client: SecretNetworkClient, tier: number) {
+  async setTier(
+    client: SecretNetworkClient,
+    tier: number,
+    bandContract: Band.Contract
+  ) {
     const userInfo = await this.userInfo(client);
     const currentTier = userInfo.user_info.tier;
+
     if (currentTier == tier) {
       return;
     }
 
-    if (currentTier != 0 && (currentTier < tier || tier == 0)) {
+    if (currentTier < tier) {
       throw new Error("Tier cannot be decreased");
     }
 
     const config = await this.config(client);
-    const maxTier = config.config.tier_list.length;
-    const tierInfo = config.config.tier_list[maxTier - tier];
-    const tierExpectedDeposit = Number.parseInt(tierInfo.deposit);
+    const tierIndex = tier - 1;
+    const tierExpectedDeposit = Number.parseInt(
+      config.config.usd_deposits[tierIndex]
+    );
 
-    const currentDeposit = Number.parseInt(userInfo.user_info.deposit);
-    const amount = tierExpectedDeposit - currentDeposit;
+    const currentDeposit = Number.parseInt(userInfo.user_info.usd_deposit);
+    const usdAmount = tierExpectedDeposit - currentDeposit;
+    const scrtAmount = await bandContract.calculateUscrtAmount(
+      client,
+      usdAmount
+    );
 
-    await this.deposit(client, amount);
+    await this.deposit(client, scrtAmount);
   }
 }

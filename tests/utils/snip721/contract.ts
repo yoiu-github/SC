@@ -3,7 +3,7 @@ import { broadcastWithCheck, getExecuteMsg, Snip721 } from "..";
 import { BaseContract } from "../baseContract";
 
 export class Snip721Contract extends BaseContract {
-  constructor(label?: string, path?: string) {
+  constructor(label = "Snip721", path = "./build/snip721.wasm") {
     super(label, path);
   }
 
