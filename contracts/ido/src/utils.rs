@@ -3,7 +3,7 @@ use crate::{
     state::{self, Config, Ido},
 };
 use cosmwasm_std::{
-    Api, Env, Extern, HumanAddr, Querier, ReadonlyStorage, StdError, StdResult, Storage,
+    Api, Coin, Extern, HumanAddr, Querier, ReadonlyStorage, StdError, StdResult, Storage,
 };
 
 pub fn assert_contract_active<S: ReadonlyStorage>(storage: &S) -> StdResult<()> {
@@ -46,47 +46,42 @@ pub fn assert_ido_admin<S: Storage, A: Api, Q: Querier>(
     Ok(())
 }
 
-pub fn assert_whitelist_authority<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    address: &HumanAddr,
-    ido_id: Option<u32>,
-) -> StdResult<()> {
-    if let Some(ido_id) = ido_id {
-        assert_contract_active(&deps.storage)?;
-        assert_ido_admin(deps, address, ido_id)?;
-    } else {
-        assert_admin(deps, address)?;
-    }
-
-    Ok(())
-}
-
 pub fn in_whitelist<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: &HumanAddr,
-    ido_id: Option<u32>,
+    ido_id: u32,
 ) -> StdResult<bool> {
     let canonical_address = deps.api.canonical_address(address)?;
 
-    if let Some(ido_id) = ido_id {
-        let ido_whitelist = state::ido_whitelist(ido_id);
-        if ido_whitelist.contains(&deps.storage, &canonical_address) {
-            return Ok(true);
-        }
-    }
+    let ido_whitelist = state::ido_whitelist(ido_id);
+    let whitelist_status = ido_whitelist.get(&deps.storage, &canonical_address);
 
-    let common_whitelist = state::common_whitelist();
-    if common_whitelist.contains(&deps.storage, &canonical_address) {
-        return Ok(true);
+    match whitelist_status {
+        Some(value) => Ok(value),
+        None => Ok(false),
     }
+}
 
-    Ok(false)
+pub fn in_blocklist<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    address: &HumanAddr,
+    ido_id: u32,
+) -> StdResult<bool> {
+    let canonical_address = deps.api.canonical_address(address)?;
+
+    let ido_whitelist = state::ido_whitelist(ido_id);
+    let whitelist_status = ido_whitelist.get(&deps.storage, &canonical_address);
+
+    match whitelist_status {
+        Some(value) => Ok(!value),
+        None => Ok(false),
+    }
 }
 
 pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     address: &HumanAddr,
-    ido_id: Option<u32>,
+    ido_id: u32,
 ) -> StdResult<()> {
     if in_whitelist(deps, address, ido_id)? {
         Ok(())
@@ -95,10 +90,10 @@ pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
     }
 }
 
-pub fn sent_funds(env: &Env) -> StdResult<u128> {
+pub fn sent_funds(coins: &[Coin]) -> StdResult<u128> {
     let mut amount: u128 = 0;
 
-    for coin in &env.message.sent_funds {
+    for coin in coins {
         if coin.denom != "uscrt" {
             return Err(StdError::generic_err("Unsopported token"));
         }

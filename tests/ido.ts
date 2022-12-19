@@ -139,6 +139,7 @@ describe("IDO", () => {
         token_contract_hash: idoToken.contractInfo.codeHash,
         price: price.toString(),
         total_amount: idoTotalAmount.toString(),
+        whitelist: { empty: {} },
         payment: {
           token: {
             contract: paymentToken.contractInfo.address,
@@ -266,7 +267,7 @@ describe("IDO", () => {
     user = await getUser(endpoint, chainId, 2);
 
     await mintTo(user, mintAmount);
-    await idoContract.addWhitelist(admin, user.address);
+    await idoContract.addWhitelist(idoOwner, user.address, idoId);
 
     const tier = 1;
     const maxPayments = Number.parseInt(idoPayments[0]);
@@ -303,7 +304,7 @@ describe("IDO", () => {
     const mintAmount = Number.parseInt(idoPayments[0]);
     user = await getUser(endpoint, chainId, 3);
 
-    await idoContract.addWhitelist(admin, user.address);
+    await idoContract.addWhitelist(idoOwner, user.address, idoId);
     await mintTo(user, mintAmount);
 
     const tier = 1;
@@ -350,7 +351,7 @@ describe("IDO", () => {
 
   it("Try to buy tokens with someone's NFT", async () => {
     user = await getUser(endpoint, chainId, 0);
-    await idoContract.addWhitelist(admin, user.address);
+    await idoContract.addWhitelist(idoOwner, user.address, idoId);
 
     const mintAmount = Number.parseInt(idoPayments[0]);
     await mintTo(user, mintAmount);
@@ -382,6 +383,7 @@ describe("IDO", () => {
         price: price.toString(),
         total_amount: idoTotalAmount.toString(),
         tokens_per_tier: tokensPerTier,
+        whitelist: { empty: { with: [user.address] } },
         payment: {
           token: {
             contract: paymentToken.contractInfo.address,
@@ -394,6 +396,7 @@ describe("IDO", () => {
     const response = await idoContract.startIdo(idoOwner, startIdoMsg);
     idoId = response.start_ido.ido_id;
   });
+
   for (let tier = 5; tier >= 1; tier--) {
     it(`Buy tokens with Tier = ${tier}`, async () => {
       await tierContract.setTier(user, tier, bandContract);
@@ -425,6 +428,7 @@ describe("IDO", () => {
         price: price.toString(),
         total_amount: idoTotalAmount.toString(),
         payment: "native",
+        whitelist: { empty: {} },
       },
     };
 
@@ -434,7 +438,7 @@ describe("IDO", () => {
 
   it("Buy some tokens", async () => {
     user = await getUser(endpoint, chainId, 1);
-    await idoContract.addWhitelist(admin, user.address);
+    await idoContract.addWhitelist(idoOwner, user.address, idoId);
 
     const initialIdoOwnerBalance = await getBalance(idoOwner);
     await idoContract.buyTokens(user, idoId, 1);

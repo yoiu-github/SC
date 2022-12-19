@@ -18,7 +18,7 @@ export class IdoContract extends BaseContract {
   async addWhitelist(
     client: SecretNetworkClient,
     address: string,
-    idoId?: number
+    idoId: number
   ): Promise<Ido.HandleAnswer.WhitelistAdd> {
     const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg.WhitelistAdd>(
       this.contractInfo,

@@ -10,13 +10,8 @@ static ACTIVE_IDOS: Keymap<u32, bool> = Keymap::new(b"active_idos");
 static IDO_TO_INFO: Keymap<u32, UserInfo> = Keymap::new(b"ido2info");
 static OWNER_TO_IDOS: AppendStore<u32> = AppendStore::new(b"owner2idos");
 
-pub fn common_whitelist() -> Keymap<'static, CanonicalAddr, bool> {
-    Keymap::new(b"whitelist")
-}
-
 pub fn ido_whitelist(ido_id: u32) -> Keymap<'static, CanonicalAddr, bool> {
-    let whitelist = common_whitelist();
-    whitelist.add_suffix(&ido_id.to_le_bytes())
+    Keymap::new(b"whitelist").add_suffix(&ido_id.to_le_bytes())
 }
 
 pub fn active_ido_list(user: &CanonicalAddr) -> Keymap<u32, bool> {
@@ -138,6 +133,7 @@ pub struct Ido {
     pub total_tokens_amount: u128,
     pub total_payment: u128,
     pub withdrawn: bool,
+    pub shared_whitelist: bool,
 }
 
 impl Ido {

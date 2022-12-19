@@ -32,7 +32,6 @@ pub struct InitMsg {
     pub tier_contract_hash: String,
     pub nft_contract: HumanAddr,
     pub nft_contract_hash: String,
-    pub whitelist: Option<Vec<HumanAddr>>,
 }
 
 impl InitMsg {
@@ -68,6 +67,17 @@ pub enum PaymentMethod {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+pub enum Whitelist {
+    Empty {
+        with: Option<Vec<HumanAddr>>,
+    },
+    Shared {
+        with_blocked: Option<Vec<HumanAddr>>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     ChangeAdmin {
         admin: HumanAddr,
@@ -86,17 +96,17 @@ pub enum HandleMsg {
         payment: PaymentMethod,
         total_amount: Uint128,
         tokens_per_tier: Option<Vec<Uint128>>,
-        whitelist: Option<Vec<HumanAddr>>,
         padding: Option<String>,
+        whitelist: Whitelist,
     },
     WhitelistAdd {
         addresses: Vec<HumanAddr>,
-        ido_id: Option<u32>,
+        ido_id: u32,
         padding: Option<String>,
     },
     WhitelistRemove {
         addresses: Vec<HumanAddr>,
-        ido_id: Option<u32>,
+        ido_id: u32,
         padding: Option<String>,
     },
     BuyTokens {
@@ -165,10 +175,10 @@ pub enum QueryMsg {
     },
     InWhitelist {
         address: HumanAddr,
-        ido_id: Option<u32>,
+        ido_id: u32,
     },
     Whitelist {
-        ido_id: Option<u32>,
+        ido_id: u32,
         start: u32,
         limit: u32,
     },

@@ -46,15 +46,6 @@
     },
     "tier_contract_hash": {
       "type": "string"
-    },
-    "whitelist": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "$ref": "#/definitions/HumanAddr"
-      }
     }
   },
   "definitions": {

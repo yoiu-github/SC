@@ -21,6 +21,14 @@ export type PaymentMethod =
       };
     };
 
+export type Whitelist =
+  | {
+      empty: { with?: HumanAddr[] | null };
+    }
+  | {
+      shared: { with_blocked?: HumanAddr[] | null };
+    };
+
 export type StartIdo = {
   start_ido: {
     end_time: number;
@@ -31,7 +39,7 @@ export type StartIdo = {
     token_contract_hash: string;
     tokens_per_tier?: Uint128[] | null;
     total_amount: Uint128;
-    whitelist?: HumanAddr[] | null;
+    whitelist: Whitelist;
     payment: PaymentMethod;
   };
 };
@@ -39,7 +47,7 @@ export type StartIdo = {
 export type WhitelistAdd = {
   whitelist_add: {
     addresses: HumanAddr[];
-    ido_id?: number | null;
+    ido_id: number;
     padding?: string | null;
   };
 };
@@ -47,7 +55,7 @@ export type WhitelistAdd = {
 export type WhitelistRemove = {
   whitelist_remove: {
     addresses: HumanAddr[];
-    ido_id?: number | null;
+    ido_id: number;
     padding?: string | null;
   };
 };

@@ -67,7 +67,8 @@
             "start_time",
             "token_contract",
             "token_contract_hash",
-            "total_amount"
+            "total_amount",
+            "whitelist"
           ],
           "properties": {
             "end_time": {
@@ -111,13 +112,7 @@
               "$ref": "#/definitions/Uint128"
             },
             "whitelist": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "$ref": "#/definitions/HumanAddr"
-              }
+              "$ref": "#/definitions/Whitelist"
             }
           }
         }
@@ -132,7 +127,8 @@
         "whitelist_add": {
           "type": "object",
           "required": [
-            "addresses"
+            "addresses",
+            "ido_id"
           ],
           "properties": {
             "addresses": {
@@ -142,10 +138,7 @@
               }
             },
             "ido_id": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "uint32",
               "minimum": 0.0
             },
@@ -168,7 +161,8 @@
         "whitelist_remove": {
           "type": "object",
           "required": [
-            "addresses"
+            "addresses",
+            "ido_id"
           ],
           "properties": {
             "addresses": {
@@ -178,10 +172,7 @@
               }
             },
             "ido_id": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "uint32",
               "minimum": 0.0
             },
@@ -379,6 +370,54 @@
     },
     "Uint128": {
       "type": "string"
+    },
+    "Whitelist": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "empty"
+          ],
+          "properties": {
+            "empty": {
+              "type": "object",
+              "properties": {
+                "with": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/definitions/HumanAddr"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "shared"
+          ],
+          "properties": {
+            "shared": {
+              "type": "object",
+              "properties": {
+                "with_blocked": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/definitions/HumanAddr"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

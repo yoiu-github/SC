@@ -54,17 +54,15 @@
         "in_whitelist": {
           "type": "object",
           "required": [
-            "address"
+            "address",
+            "ido_id"
           ],
           "properties": {
             "address": {
               "$ref": "#/definitions/HumanAddr"
             },
             "ido_id": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "uint32",
               "minimum": 0.0
             }
@@ -81,15 +79,13 @@
         "whitelist": {
           "type": "object",
           "required": [
+            "ido_id",
             "limit",
             "start"
           ],
           "properties": {
             "ido_id": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "uint32",
               "minimum": 0.0
             },

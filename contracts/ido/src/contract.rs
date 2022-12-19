@@ -1,13 +1,13 @@
 use crate::{
     msg::{
         ContractStatus, HandleAnswer, HandleMsg, InitMsg, NftToken, PaymentMethod, QueryAnswer,
-        QueryMsg, ResponseStatus,
+        QueryMsg, ResponseStatus, Whitelist,
     },
     state::{self, Config, Ido, Purchase},
     tier::get_tier_index,
     utils::{
-        self, assert_admin, assert_contract_active, assert_ido_admin, assert_whitelist_authority,
-        assert_whitelisted, in_whitelist,
+        self, assert_admin, assert_contract_active, assert_ido_admin, assert_whitelisted,
+        in_whitelist,
     },
 };
 use cosmwasm_std::{
@@ -32,14 +32,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let canonical_admin = deps.api.canonical_address(&admin)?;
     let tier_contract = deps.api.canonical_address(&msg.tier_contract)?;
     let nft_contract = deps.api.canonical_address(&msg.nft_contract)?;
-
-    if let Some(addresses) = msg.whitelist {
-        for address in addresses {
-            let canonical_address = deps.api.canonical_address(&address)?;
-            let whitelist = state::common_whitelist();
-            whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
-        }
-    }
 
     let max_payments = msg.max_payments.into_iter().map(|p| p.u128()).collect();
     let config = Config {
@@ -179,7 +171,7 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     mut ido: Ido,
-    whitelist_addresses: Option<Vec<HumanAddr>>,
+    whitelist: Whitelist,
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
 
@@ -211,10 +203,20 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     let ido_id = ido.save(&mut deps.storage)?;
     let ido_whitelist = state::ido_whitelist(ido_id);
 
-    if let Some(whitelist_addresses) = whitelist_addresses {
-        for address in whitelist_addresses {
-            let canonical_address = deps.api.canonical_address(&address)?;
-            ido_whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
+    match whitelist {
+        Whitelist::Empty { with } => {
+            ido.shared_whitelist = false;
+            for address in with.unwrap_or_default() {
+                let canonical_address = deps.api.canonical_address(&address)?;
+                ido_whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
+            }
+        }
+        Whitelist::Shared { with_blocked } => {
+            ido.shared_whitelist = true;
+            for address in with_blocked.unwrap_or_default() {
+                let canonical_address = deps.api.canonical_address(&address)?;
+                ido_whitelist.insert(&mut deps.storage, &canonical_address, &false)?;
+            }
         }
     }
 
@@ -255,16 +257,24 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     token: Option<NftToken>,
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
-    assert_whitelisted(deps, &env.message.sender, Some(ido_id))?;
 
     let mut ido = Ido::load(&deps.storage, ido_id)?;
+    let sender = env.message.sender;
+
+    if ido.shared_whitelist {
+        if utils::in_blocklist(deps, &sender, ido_id)? {
+            return Err(StdError::generic_err("You are in blacklist"));
+        }
+    } else {
+        assert_whitelisted(deps, &sender, ido_id)?;
+    }
 
     if !ido.is_active(env.block.time) {
         return Err(StdError::generic_err("IDO is not active"));
     }
 
     if ido.is_native_payment() {
-        amount = utils::sent_funds(&env)?;
+        amount = utils::sent_funds(&env.message.sent_funds)?;
     }
 
     if amount == 0 {
@@ -276,7 +286,6 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("All tokens are sold"));
     }
 
-    let sender = env.message.sender;
     let tier = get_tier_index(deps, sender.clone(), token)?;
     let remaining_amount = ido.remaining_tokens_per_tier(tier);
 
@@ -561,14 +570,12 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     addresses: Vec<HumanAddr>,
-    ido_id: Option<u32>,
+    ido_id: u32,
 ) -> HandleResult {
-    assert_whitelist_authority(deps, &env.message.sender, ido_id)?;
+    assert_contract_active(&deps.storage)?;
+    assert_ido_admin(deps, &env.message.sender, ido_id)?;
 
-    let whitelist = ido_id
-        .map(state::ido_whitelist)
-        .unwrap_or_else(state::common_whitelist);
-
+    let whitelist = state::ido_whitelist(ido_id);
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
         whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
@@ -589,17 +596,16 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
     addresses: Vec<HumanAddr>,
-    ido_id: Option<u32>,
+    ido_id: u32,
 ) -> HandleResult {
-    assert_whitelist_authority(deps, &env.message.sender, ido_id)?;
+    assert_contract_active(&deps.storage)?;
+    assert_ido_admin(deps, &env.message.sender, ido_id)?;
 
-    let whitelist = ido_id
-        .map(state::ido_whitelist)
-        .unwrap_or_else(state::common_whitelist);
+    let whitelist = state::ido_whitelist(ido_id);
 
     for address in addresses {
         let canonical_address = deps.api.canonical_address(&address)?;
-        whitelist.remove(&mut deps.storage, &canonical_address)?;
+        whitelist.insert(&mut deps.storage, &canonical_address, &false)?;
     }
 
     let answer = to_binary(&HandleAnswer::WhitelistRemove {
@@ -641,14 +647,10 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
             start,
             limit,
         } => {
-            let whitelist = if let Some(ido_id) = ido_id {
-                state::ido_whitelist(ido_id)
-            } else {
-                state::common_whitelist()
-            };
-
+            let whitelist = state::ido_whitelist(ido_id);
             let canonical_addresses = whitelist.paging_keys(&deps.storage, start, limit)?;
             let mut addresses = Vec::with_capacity(canonical_addresses.len());
+
             for canonical_address in canonical_addresses {
                 let address = deps.api.human_address(&canonical_address)?;
                 addresses.push(address);
@@ -739,7 +741,6 @@ mod test {
             nft_contract: HumanAddr::from("nft"),
             nft_contract_hash: String::from("nft_hash"),
             lock_periods: vec![250, 200, 150, 100],
-            whitelist: None,
         }
     }
 
@@ -773,7 +774,7 @@ mod test {
         let total_amount = rng.gen();
 
         let mut whitelist = Vec::new();
-        for i in 0..rng.gen_range(0..100) {
+        for i in 0..rng.gen_range(20..100) {
             let address = format!("address_{}", i);
             whitelist.push(HumanAddr(address));
         }
@@ -794,11 +795,13 @@ mod test {
             token_contract_hash,
             payment: PaymentMethod::Token {
                 contract: HumanAddr::from("token"),
-                hash: String::from("token_hash"),
+                code_hash: String::from("token_hash"),
             },
             price: Uint128(price),
             total_amount: Uint128(total_amount),
-            whitelist: Some(whitelist),
+            whitelist: Whitelist::Empty {
+                with: Some(whitelist),
+            },
             tokens_per_tier: Some(tokens_per_tier),
             padding: None,
         }
@@ -853,29 +856,6 @@ mod test {
                 .map(|p| p.u128())
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn initialize_with_whitelist() {
-        let mut msg = get_init_msg();
-
-        let whitelist_len = 30;
-        let mut whitelist_addresses = Vec::with_capacity(whitelist_len);
-
-        for i in 0..whitelist_len {
-            let address_str = format!("{:03}", i);
-            let address = HumanAddr(address_str);
-            whitelist_addresses.push(address);
-        }
-
-        msg.whitelist = Some(whitelist_addresses.clone());
-        let deps = initialize_with(msg).unwrap();
-
-        let whitelist = state::common_whitelist();
-        for address in whitelist_addresses {
-            let canonical_address = deps.api.canonical_address(&address).unwrap();
-            assert!(whitelist.contains(&deps.storage, &canonical_address));
-        }
     }
 
     #[test]
@@ -997,7 +977,11 @@ mod test {
             assert_eq!(ido.payment_token_contract, payment_token_contract_canonical);
             assert_eq!(ido.payment_token_hash, Some(String::from("token_hash")));
 
-            let whitelist_len = whitelist.unwrap().len() as u32;
+            let whitelist_len = match whitelist {
+                Whitelist::Empty { with } => with.map(|w| w.len()).unwrap_or(0),
+                Whitelist::Shared { with_blocked } => with_blocked.map(|w| w.len()).unwrap_or(0),
+            } as u32;
+
             let ido_whitelist = state::ido_whitelist(0);
             assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(whitelist_len));
 
@@ -1059,45 +1043,15 @@ mod test {
         let msg = get_init_msg();
         let mut deps = initialize_with(msg).unwrap();
 
-        let whitelist = state::common_whitelist();
-        assert_eq!(whitelist.get_len(&deps.storage), Ok(0));
-
-        let address = HumanAddr::from("whitelisted");
-        let canonical_address = deps.api.canonical_address(&address).unwrap();
-        let add_whitelist_msg = HandleMsg::WhitelistAdd {
-            addresses: vec![address.clone()],
-            ido_id: None,
-            padding: None,
-        };
-
         let unauthorized_user = HumanAddr::from("unauthorized");
-        let env = mock_env(unauthorized_user.clone(), &[]);
-
-        let response = handle(&mut deps, env, add_whitelist_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
-        let admin = HumanAddr::from("admin");
-        let env = mock_env(admin.clone(), &[]);
-        handle(&mut deps, env, add_whitelist_msg.clone()).unwrap();
-
-        let common_whitelist = state::common_whitelist();
-        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(1));
-        assert_eq!(
-            common_whitelist.get(&deps.storage, &canonical_address),
-            Some(true)
-        );
-
-        let whitelist_addresses = common_whitelist.paging_keys(&deps.storage, 0, 100).unwrap();
-        assert_eq!(whitelist_addresses, vec![canonical_address.clone()]);
-
         let env = mock_env(unauthorized_user, &[]);
-        let new_address = HumanAddr::from("new_address");
-        let canonical_new_address = deps.api.canonical_address(&new_address).unwrap();
+
+        let address = HumanAddr::from("address");
+        let canonical_address = deps.api.canonical_address(&address).unwrap();
 
         let add_ido_whitelist_msg = HandleMsg::WhitelistAdd {
-            addresses: vec![address, new_address],
-            ido_id: Some(0),
+            addresses: vec![address],
+            ido_id: 0,
             padding: None,
         };
 
@@ -1116,135 +1070,55 @@ mod test {
         let error = extract_error(response);
         assert!(error.contains("Unauthorized"));
 
-        let env = mock_env(admin, &[]);
-        let response = handle(&mut deps, env, add_ido_whitelist_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
         let env = mock_env(ido_admin, &[]);
-        let response = handle(&mut deps, env.clone(), add_whitelist_msg);
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
         handle(&mut deps, env, add_ido_whitelist_msg).unwrap();
 
         let ido_whitelist = state::ido_whitelist(0);
-        assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(2));
+        assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(1));
         assert_eq!(
             ido_whitelist.get(&deps.storage, &canonical_address),
             Some(true)
         );
-        assert_eq!(
-            ido_whitelist.get(&deps.storage, &canonical_new_address),
-            Some(true)
-        );
 
         let whitelist_addresses = ido_whitelist.paging_keys(&deps.storage, 0, 100).unwrap();
-        assert_eq!(
-            whitelist_addresses,
-            vec![canonical_address.clone(), canonical_new_address]
-        );
-
-        let common_whitelist = state::common_whitelist();
-        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(1));
-        assert_eq!(
-            common_whitelist.get(&deps.storage, &canonical_address),
-            Some(true)
-        );
+        assert_eq!(whitelist_addresses, vec![canonical_address]);
     }
 
     #[test]
     fn whitelist_remove() {
-        let mut msg = get_init_msg();
+        let mut deps = initialize_with_default();
+        let start_ido_msg = start_ido_msg();
 
-        let whitelist_len = 30;
-        let mut whitelist_addresses = Vec::with_capacity(whitelist_len);
+        let whitelist = match start_ido_msg {
+            HandleMsg::StartIdo {
+                whitelist: Whitelist::Empty { ref with },
+                ..
+            } => with.as_ref().unwrap().clone(),
+            _ => panic!(),
+        };
 
-        for i in 0..whitelist_len {
-            let address_str = format!("{:03}", i);
-            let address = HumanAddr(address_str);
-            whitelist_addresses.push(address);
-        }
+        let whitelist_len = whitelist.len() as u32;
 
-        let whitelist_ido_addresses = whitelist_addresses
-            .iter()
-            .map(|a| format!("ido_{}", a).into())
-            .collect::<Vec<_>>();
-
-        msg.whitelist = Some(whitelist_addresses.clone());
-
-        let mut deps = initialize_with(msg).unwrap();
-        let mut start_ido_msg = start_ido_msg();
-
-        if let HandleMsg::StartIdo {
-            ref mut whitelist, ..
-        } = start_ido_msg
-        {
-            whitelist.replace(whitelist_ido_addresses.clone());
-        }
-
-        let admin = HumanAddr::from("admin");
         let ido_admin = HumanAddr::from("ido_admin");
+
         let env = mock_env(ido_admin.clone(), &[]);
         handle(&mut deps, env, start_ido_msg).unwrap();
 
         let remove_whitelist_msg = HandleMsg::WhitelistRemove {
-            addresses: whitelist_addresses[10..20].to_vec(),
-            ido_id: None,
+            addresses: whitelist[10..20].to_vec(),
+            ido_id: 0,
             padding: None,
         };
 
         let unauthorized_user = HumanAddr::from("unauthorized");
-
-        let env = mock_env(unauthorized_user.clone(), &[]);
-        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
-        let env = mock_env(ido_admin.clone(), &[]);
-        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
-        let env = mock_env(admin.clone(), &[]);
-        let response = handle(&mut deps, env, remove_whitelist_msg).unwrap();
-
-        match from_binary(&response.data.unwrap()).unwrap() {
-            HandleAnswer::WhitelistRemove {
-                whitelist_size,
-                status,
-            } => {
-                assert_eq!(whitelist_size, 20);
-                assert_eq!(status, ResponseStatus::Success);
-            }
-            _ => unreachable!(),
-        }
-
-        let common_whitelist = state::common_whitelist();
-        assert_eq!(common_whitelist.get_len(&deps.storage), Ok(20));
-
-        for address in whitelist_addresses[10..20].iter() {
-            let canonical_address = deps.api.canonical_address(address).unwrap();
-            assert!(!common_whitelist.contains(&deps.storage, &canonical_address));
-        }
-
-        let remove_whitelist_msg = HandleMsg::WhitelistRemove {
-            addresses: whitelist_ido_addresses[10..].to_vec(),
-            ido_id: Some(0),
-            padding: None,
-        };
 
         let env = mock_env(unauthorized_user, &[]);
         let response = handle(&mut deps, env, remove_whitelist_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Unauthorized"));
 
-        let env = mock_env(admin, &[]);
-        let response = handle(&mut deps, env, remove_whitelist_msg.clone());
-        let error = extract_error(response);
-        assert!(error.contains("Unauthorized"));
-
         let env = mock_env(ido_admin, &[]);
+
         let response = handle(&mut deps, env, remove_whitelist_msg).unwrap();
 
         match from_binary(&response.data.unwrap()).unwrap() {
@@ -1252,33 +1126,21 @@ mod test {
                 whitelist_size,
                 status,
             } => {
-                assert_eq!(whitelist_size, 10);
+                assert_eq!(whitelist_size, whitelist_len);
                 assert_eq!(status, ResponseStatus::Success);
             }
             _ => unreachable!(),
         }
 
         let ido_whitelist = state::ido_whitelist(0);
-        assert_eq!(ido_whitelist.get_len(&deps.storage), Ok(10));
-
-        for address in whitelist_ido_addresses[10..].iter() {
+        for (index, address) in whitelist.iter().enumerate() {
             let canonical_address = deps.api.canonical_address(address).unwrap();
-            assert!(!ido_whitelist.contains(&deps.storage, &canonical_address));
-        }
+            let in_whitelist = !(10..20).contains(&index);
 
-        for address in whitelist_addresses[..10]
-            .iter()
-            .chain(whitelist_addresses[20..].iter())
-        {
-            let canonical_address = deps.api.canonical_address(address).unwrap();
-            assert!(common_whitelist.contains(&deps.storage, &canonical_address));
-            assert!(!ido_whitelist.contains(&deps.storage, &canonical_address));
-        }
-
-        for address in whitelist_ido_addresses[..10].iter() {
-            let canonical_address = deps.api.canonical_address(address).unwrap();
-            assert!(!common_whitelist.contains(&deps.storage, &canonical_address));
-            assert!(ido_whitelist.contains(&deps.storage, &canonical_address));
+            assert_eq!(
+                ido_whitelist.get(&deps.storage, &canonical_address),
+                Some(in_whitelist)
+            );
         }
     }
 
