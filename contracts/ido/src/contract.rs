@@ -319,7 +319,7 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let payment = amount.checked_mul(ido.price).unwrap();
     let lock_period = config.lock_periods[tier as usize];
 
-    let unlock_time = env.block.time.checked_add(lock_period).unwrap();
+    let unlock_time = ido.end_time.checked_add(lock_period).unwrap();
     let tokens_amount = Uint128(amount);
     let purchase = Purchase {
         timestamp: env.block.time,

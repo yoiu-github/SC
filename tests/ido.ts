@@ -23,9 +23,19 @@ async function checkMaxDeposit(
 ) {
   const maxTokensAmount = Math.floor(maxPayments / price);
   await contract.buyTokens(client, idoId, maxTokensAmount, tokenId);
-  await assert.rejects(async () => {
-    await contract.buyTokens(client, idoId, 1, tokenId);
-  });
+  await assert.rejects(
+    async () => {
+      await contract.buyTokens(client, idoId, 1, tokenId);
+    },
+    (err: Error) => {
+      const maxTierMessage = "You cannot buy more tokens with current tier";
+      const allTierTokensSold = "All tokens are sold for your tier";
+      return (
+        err.message.indexOf(maxTierMessage) >= 0 ||
+        err.message.indexOf(allTierTokensSold) >= 0
+      );
+    }
+  );
 }
 
 describe("IDO", () => {
@@ -37,19 +47,19 @@ describe("IDO", () => {
   let price: number;
   let tokenId: string;
 
-  const tierDeposits = ["1000", "500", "200", "100"];
+  let startIdoMsg: Ido.HandleMsg.StartIdo;
 
+  const tierDeposits = ["1000", "500", "200", "100"];
   const idoPayments = ["10000", "5000", "3000", "2000", "1000"];
-  const idoLockPeriods = [30, 60, 90, 120, 150];
-  const idoTotalAmount = 20000;
   const tokensPerTier = ["19900", "40", "30", "20", "10"];
 
-  let idoContract: Ido.IdoContract;
-
-  const totalIdoPayment = idoPayments.reduce(
+  const idoLockPeriods = [10, 10, 10, 10, 10];
+  const idoTotalAmount = tokensPerTier.reduce(
     (s, value) => s + Number.parseInt(value),
     0
   );
+
+  let idoContract: Ido.IdoContract;
 
   const endpoint = "https://api.pulsar.scrttestnet.com";
   const chainId = "pulsar-2";
@@ -120,11 +130,15 @@ describe("IDO", () => {
     await mintTo(idoOwner, idoTotalAmount, idoToken);
 
     price = 10;
+
     const time = currentTime();
+    const startTime = time + 30;
+    const endTime = startTime + 180;
+
     const startIdoMsg: Ido.HandleMsg.StartIdo = {
       start_ido: {
-        start_time: time + 30,
-        end_time: time + 10_000,
+        start_time: startTime,
+        end_time: endTime,
         token_contract: idoToken.contractInfo.address,
         token_contract_hash: idoToken.contractInfo.codeHash,
         price: price.toString(),
@@ -142,30 +156,41 @@ describe("IDO", () => {
     const response = await idoContract.startIdo(idoOwner, startIdoMsg);
     idoId = response.start_ido.ido_id;
 
-    const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
-    assert.equal(idoInfo.ido_info.shared_whitelist, false);
+    const idoInfo = await idoContract
+      .idoInfo(idoOwner, idoId)
+      .then((i) => i.ido_info);
+
+    assert.equal(idoInfo.admin, idoOwner.address);
+    assert.equal(idoInfo.start_time, startTime);
+    assert.equal(idoInfo.end_time, endTime);
+    assert.equal(idoInfo.token_contract, idoToken.contractInfo.address);
+    assert.equal(idoInfo.token_contract_hash, idoToken.contractInfo.codeHash);
+    assert.equal(idoInfo.price, price.toString());
+    assert.equal(idoInfo.total_tokens_amount, idoTotalAmount.toString());
+    assert.equal(idoInfo.shared_whitelist, false);
+    assert.equal(idoInfo.withdrawn, false);
+    assert.equal(idoInfo.sold_amount, 0);
+    assert.equal(idoInfo.participants, 0);
+    assert.deepEqual(idoInfo.payment, {
+      token: {
+        contract: paymentToken.contractInfo.address,
+        code_hash: paymentToken.contractInfo.codeHash,
+      },
+    });
   });
 
   it("Try to buy tokens before IDO starts", async () => {
     user = await getUser(endpoint, chainId, 1);
+    await mintTo(user, idoTotalAmount);
 
-    await mintTo(user, totalIdoPayment);
-    await assert.rejects(async () => {
-      await idoContract.buyTokens(user, idoId, 1);
-    });
-  });
-
-  it("Try to buy tokens not being whitelisted", async () => {
-    const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
-    await waitFor(idoInfo.ido_info.start_time);
-
-    const response = await idoContract.inWhitelist(user, idoId);
-    assert.ok(!response.in_whitelist.in_whitelist);
-
-    let tier5Amount = Number.parseInt(idoPayments[4]) / price;
-    await assert.rejects(async () => {
-      await idoContract.buyTokens(user, idoId, tier5Amount + 1);
-    });
+    await assert.rejects(
+      async () => {
+        await idoContract.buyTokens(user, idoId, 1);
+      },
+      (err: Error) => {
+        return err.message.indexOf("IDO is not active") >= 0;
+      }
+    );
   });
 
   it("Add user to whitelist", async () => {
@@ -214,16 +239,35 @@ describe("IDO", () => {
       assert.equal(lastPurchase.tokens_amount, payment / price);
       assert.equal(amount, 5 - tierIndex);
       assert.equal(
-        lastPurchase.timestamp + idoLockPeriods[tierIndex],
+        idoInfo.ido_info.end_time + idoLockPeriods[tierIndex],
         lastPurchase.unlock_time
       );
     });
   }
 
   it("Try to receive tokens before lock period", async () => {
-    await assert.rejects(async () => {
-      console.log(await idoContract.recvTokens(user, idoId));
-    });
+    await assert.rejects(
+      async () => {
+        await idoContract.recvTokens(user, idoId);
+      },
+      (err: Error) => {
+        return err.message.indexOf("Nothing to receive") >= 0;
+      }
+    );
+  });
+
+  it("Try to receive tokens after IDO end", async () => {
+    const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
+    await waitFor(idoInfo.ido_info.end_time);
+
+    await assert.rejects(
+      async () => {
+        await idoContract.recvTokens(user, idoId);
+      },
+      (err: Error) => {
+        return err.message.indexOf("Nothing to receive") >= 0;
+      }
+    );
   });
 
   it("Receive tokens after lock period", async () => {
@@ -256,12 +300,41 @@ describe("IDO", () => {
     );
   });
 
+  it("Start IDO for NFT test", async () => {
+    await mintTo(idoOwner, idoTotalAmount, idoToken);
+
+    price = 10;
+    const time = currentTime();
+    startIdoMsg = {
+      start_ido: {
+        start_time: time,
+        end_time: time + 10_000,
+        token_contract: idoToken.contractInfo.address,
+        token_contract_hash: idoToken.contractInfo.codeHash,
+        price: price.toString(),
+        total_amount: idoTotalAmount.toString(),
+        whitelist: { shared: {} },
+        payment: {
+          token: {
+            contract: paymentToken.contractInfo.address,
+            code_hash: paymentToken.contractInfo.codeHash,
+          },
+        },
+      },
+    };
+
+    const response = await idoContract.startIdo(idoOwner, startIdoMsg);
+    idoId = response.start_ido.ido_id;
+
+    const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
+    assert.equal(idoInfo.ido_info.shared_whitelist, true);
+  });
+
   it("Buy tokens with NFT (private metadata)", async () => {
     const mintAmount = Number.parseInt(idoPayments[0]);
     user = await getUser(endpoint, chainId, 2);
 
     await mintTo(user, mintAmount);
-    await idoContract.addWhitelist(idoOwner, user.address, idoId);
 
     const tier = 1;
     const maxPayments = Number.parseInt(idoPayments[0]);
@@ -297,8 +370,6 @@ describe("IDO", () => {
   it("Buy tokens with NFT (public metadata)", async () => {
     const mintAmount = Number.parseInt(idoPayments[0]);
     user = await getUser(endpoint, chainId, 3);
-
-    await idoContract.addWhitelist(idoOwner, user.address, idoId);
     await mintTo(user, mintAmount);
 
     const tier = 1;
@@ -365,26 +436,6 @@ describe("IDO", () => {
   it("Start IDO with shared whitelist", async () => {
     await mintTo(idoOwner, idoTotalAmount, idoToken);
 
-    price = 10;
-    const time = currentTime();
-    const startIdoMsg: Ido.HandleMsg.StartIdo = {
-      start_ido: {
-        start_time: time,
-        end_time: time + 10_000,
-        token_contract: idoToken.contractInfo.address,
-        token_contract_hash: idoToken.contractInfo.codeHash,
-        price: price.toString(),
-        total_amount: idoTotalAmount.toString(),
-        whitelist: { shared: {} },
-        payment: {
-          token: {
-            contract: paymentToken.contractInfo.address,
-            code_hash: paymentToken.contractInfo.codeHash,
-          },
-        },
-      },
-    };
-
     const response = await idoContract.startIdo(idoOwner, startIdoMsg);
     idoId = response.start_ido.ido_id;
 
@@ -440,7 +491,7 @@ describe("IDO", () => {
   it("Start IDO with specified tokens per tier", async () => {
     user = await getUser(endpoint, chainId, 2);
     await mintTo(idoOwner, idoTotalAmount, idoToken);
-    await mintTo(user, totalIdoPayment);
+    await mintTo(user, idoTotalAmount);
 
     const time = currentTime();
     const startIdoMsg: Ido.HandleMsg.StartIdo = {
