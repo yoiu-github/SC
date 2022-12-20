@@ -30,6 +30,21 @@ export class IdoContract extends BaseContract {
     return response[0] as Ido.HandleAnswer.WhitelistAdd;
   }
 
+  async removeFromWhitelist(
+    client: SecretNetworkClient,
+    address: string,
+    idoId: number
+  ): Promise<Ido.HandleAnswer.WhitelistRemove> {
+    const addWhitelistMsg = getExecuteMsg<Ido.HandleMsg.WhitelistRemove>(
+      this.contractInfo,
+      client.address,
+      { whitelist_remove: { addresses: [address], ido_id: idoId } }
+    );
+
+    const response = await broadcastWithCheck(client, [addWhitelistMsg]);
+    return response[0] as Ido.HandleAnswer.WhitelistRemove;
+  }
+
   async inWhitelist(
     client: SecretNetworkClient,
     idoId?: number

@@ -240,6 +240,7 @@ pub enum QueryAnswer {
         total_tokens_amount: Uint128,
         total_payment: Uint128,
         withdrawn: bool,
+        shared_whitelist: bool,
     },
     InWhitelist {
         in_whitelist: bool,

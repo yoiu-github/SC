@@ -63,6 +63,14 @@ impl Config {
         CONFIG_KEY.save(storage, self)
     }
 
+    pub fn min_tier(&self) -> u8 {
+        self.max_payments.len() as u8
+    }
+
+    pub fn min_tier_index(&self) -> u8 {
+        self.min_tier().checked_sub(1).unwrap()
+    }
+
     pub fn to_answer<A: Api>(self, api: &A) -> StdResult<QueryAnswer> {
         let admin = api.human_address(&self.admin)?;
         let tier_contract = api.human_address(&self.tier_contract)?;
@@ -224,6 +232,7 @@ impl Ido {
             total_tokens_amount: Uint128(self.total_tokens_amount),
             total_payment: Uint128(self.total_payment),
             withdrawn: self.withdrawn,
+            shared_whitelist: self.shared_whitelist,
         })
     }
 }

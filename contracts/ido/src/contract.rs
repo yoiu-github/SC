@@ -5,10 +5,7 @@ use crate::{
     },
     state::{self, Config, Ido, Purchase},
     tier::get_tier_index,
-    utils::{
-        self, assert_admin, assert_contract_active, assert_ido_admin, assert_whitelisted,
-        in_whitelist,
-    },
+    utils::{self, assert_admin, assert_contract_active, assert_ido_admin},
 };
 use cosmwasm_std::{
     coins, to_binary, Api, BankMsg, CosmosMsg, Env, Extern, HandleResponse, HandleResult,
@@ -200,25 +197,30 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Ido ends in the past"));
     }
 
+    match whitelist {
+        Whitelist::Empty { .. } => ido.shared_whitelist = false,
+        Whitelist::Shared { .. } => ido.shared_whitelist = true,
+    }
+
     let ido_id = ido.save(&mut deps.storage)?;
     let ido_whitelist = state::ido_whitelist(ido_id);
 
     match whitelist {
         Whitelist::Empty { with } => {
-            ido.shared_whitelist = false;
             for address in with.unwrap_or_default() {
                 let canonical_address = deps.api.canonical_address(&address)?;
                 ido_whitelist.insert(&mut deps.storage, &canonical_address, &true)?;
             }
         }
         Whitelist::Shared { with_blocked } => {
-            ido.shared_whitelist = true;
             for address in with_blocked.unwrap_or_default() {
                 let canonical_address = deps.api.canonical_address(&address)?;
                 ido_whitelist.insert(&mut deps.storage, &canonical_address, &false)?;
             }
         }
     }
+
+    ido.save(&mut deps.storage)?;
 
     let canonical_sender = deps.api.canonical_address(&env.message.sender)?;
     let startup_ido_list = state::ido_list_owned_by(&canonical_sender);
@@ -261,14 +263,6 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     let mut ido = Ido::load(&deps.storage, ido_id)?;
     let sender = env.message.sender;
 
-    if ido.shared_whitelist {
-        if utils::in_blocklist(deps, &sender, ido_id)? {
-            return Err(StdError::generic_err("You are in blacklist"));
-        }
-    } else {
-        assert_whitelisted(deps, &sender, ido_id)?;
-    }
-
     if !ido.is_active(env.block.time) {
         return Err(StdError::generic_err("IDO is not active"));
     }
@@ -286,7 +280,13 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("All tokens are sold"));
     }
 
-    let tier = get_tier_index(deps, sender.clone(), token)?;
+    let config = Config::load(&deps.storage)?;
+    let tier = if !utils::in_whitelist(deps, &sender, ido_id)? {
+        config.min_tier_index()
+    } else {
+        get_tier_index(deps, sender.clone(), token)?
+    };
+
     let remaining_amount = ido.remaining_tokens_per_tier(tier);
 
     if remaining_amount == 0 {
@@ -299,7 +299,6 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         .get(&deps.storage, &ido_id)
         .unwrap_or_default();
 
-    let config = Config::load(&deps.storage)?;
     let max_tier_payment = config.max_payments[tier as usize];
 
     let current_payment = user_ido_info.total_payment;
@@ -639,7 +638,7 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
             ido.to_answer(&deps.api)?
         }
         QueryMsg::InWhitelist { address, ido_id } => {
-            let in_whitelist = in_whitelist(deps, &address, ido_id)?;
+            let in_whitelist = utils::in_whitelist(deps, &address, ido_id)?;
             QueryAnswer::InWhitelist { in_whitelist }
         }
         QueryMsg::Whitelist {

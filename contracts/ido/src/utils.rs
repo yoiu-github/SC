@@ -58,35 +58,10 @@ pub fn in_whitelist<S: Storage, A: Api, Q: Querier>(
 
     match whitelist_status {
         Some(value) => Ok(value),
-        None => Ok(false),
-    }
-}
-
-pub fn in_blocklist<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    address: &HumanAddr,
-    ido_id: u32,
-) -> StdResult<bool> {
-    let canonical_address = deps.api.canonical_address(address)?;
-
-    let ido_whitelist = state::ido_whitelist(ido_id);
-    let whitelist_status = ido_whitelist.get(&deps.storage, &canonical_address);
-
-    match whitelist_status {
-        Some(value) => Ok(!value),
-        None => Ok(false),
-    }
-}
-
-pub fn assert_whitelisted<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-    address: &HumanAddr,
-    ido_id: u32,
-) -> StdResult<()> {
-    if in_whitelist(deps, address, ido_id)? {
-        Ok(())
-    } else {
-        Err(StdError::generic_err("Not in whitelist"))
+        None => {
+            let ido = Ido::load(&deps.storage, ido_id)?;
+            Ok(ido.shared_whitelist)
+        }
     }
 }
 

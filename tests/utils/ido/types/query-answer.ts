@@ -41,6 +41,7 @@ export type IdoInfo = {
     total_payment: Uint128;
     total_tokens_amount: Uint128;
     withdrawn: boolean;
+    shared_whitelist: boolean;
   };
 };
 
