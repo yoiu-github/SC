@@ -78,3 +78,45 @@ pub fn sent_funds(coins: &[Coin]) -> StdResult<u128> {
 
     Ok(amount)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::state::{self, Ido};
+    use cosmwasm_std::{testing::mock_dependencies, Api, HumanAddr};
+
+    #[test]
+    fn in_whitelist() {
+        let mut deps = mock_dependencies(20, &[]);
+
+        let mut ido = Ido::default();
+        ido.shared_whitelist = false;
+        ido.save(&mut deps.storage).unwrap();
+        let ido_id = ido.id();
+
+        let address = HumanAddr::from("address");
+        let whitelisted = HumanAddr::from("whitelisted");
+        let blacklisted = HumanAddr::from("blacklisted");
+        let canonical_whitelisted = deps.api.canonical_address(&whitelisted).unwrap();
+        let canonical_blacklisted = deps.api.canonical_address(&blacklisted).unwrap();
+
+        let whitelist = state::ido_whitelist(ido_id);
+
+        whitelist
+            .insert(&mut deps.storage, &canonical_whitelisted, &true)
+            .unwrap();
+        whitelist
+            .insert(&mut deps.storage, &canonical_blacklisted, &false)
+            .unwrap();
+
+        assert_eq!(super::in_whitelist(&deps, &address, ido_id), Ok(false));
+        assert_eq!(super::in_whitelist(&deps, &whitelisted, ido_id), Ok(true));
+        assert_eq!(super::in_whitelist(&deps, &blacklisted, ido_id), Ok(false));
+
+        ido.shared_whitelist = true;
+        ido.save(&mut deps.storage).unwrap();
+
+        assert_eq!(super::in_whitelist(&deps, &address, ido_id), Ok(true));
+        assert_eq!(super::in_whitelist(&deps, &whitelisted, ido_id), Ok(true));
+        assert_eq!(super::in_whitelist(&deps, &blacklisted, ido_id), Ok(false));
+    }
+}

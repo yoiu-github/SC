@@ -177,8 +177,12 @@ impl Ido {
         Ok(id)
     }
 
-    pub fn id(&self) -> Option<u32> {
-        self.id
+    pub fn id(&self) -> u32 {
+        self.id.unwrap()
+    }
+
+    pub fn is_stored(&self) -> bool {
+        self.id.is_some()
     }
 
     pub fn is_active(&self, current_time: u64) -> bool {
@@ -264,28 +268,32 @@ mod test {
             ..Ido::default()
         };
 
-        assert_eq!(new_ido.id(), None);
+        assert!(!new_ido.is_stored());
         assert_eq!(Ido::len(&storage), Ok(0));
 
         new_ido.save(&mut storage).unwrap();
-        assert_eq!(new_ido.id(), Some(0));
+        assert!(new_ido.is_stored());
+        assert_eq!(new_ido.id(), 0);
         assert_eq!(Ido::len(&storage), Ok(1));
 
         new_ido.save(&mut storage).unwrap();
-        assert_eq!(new_ido.id(), Some(0));
+        assert!(new_ido.is_stored());
+        assert_eq!(new_ido.id(), 0);
         assert_eq!(Ido::len(&storage), Ok(1));
 
         let mut loaded_ido = Ido::load(&storage, 0).unwrap();
         assert_eq!(new_ido, loaded_ido);
 
         loaded_ido.save(&mut storage).unwrap();
+        assert!(loaded_ido.is_stored());
         assert_eq!(new_ido, loaded_ido);
-        assert_eq!(loaded_ido.id(), Some(0));
+        assert_eq!(loaded_ido.id(), 0);
         assert_eq!(Ido::len(&storage), Ok(1));
 
         loaded_ido.id = None;
         loaded_ido.save(&mut storage).unwrap();
-        assert_eq!(loaded_ido.id(), Some(1));
+        assert!(loaded_ido.is_stored());
+        assert_eq!(loaded_ido.id(), 1);
         assert_eq!(Ido::len(&storage), Ok(2));
     }
 }

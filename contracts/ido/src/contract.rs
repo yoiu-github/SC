@@ -915,6 +915,158 @@ mod test {
     }
 
     #[test]
+    fn start_ido_wrong_date() {
+        let mut deps = initialize_with_default();
+        let ido_admin = HumanAddr::from("ido_admin");
+        let env = mock_env(&ido_admin, &[]);
+
+        for start_time in 1..10 {
+            let start_ido_msg = HandleMsg::StartIdo {
+                start_time,
+                end_time: 1,
+                token_contract: HumanAddr::from("token_contract"),
+                token_contract_hash: String::new(),
+                price: Uint128::from(1u128),
+                payment: PaymentMethod::Native,
+                total_amount: Uint128::from(100u128),
+                tokens_per_tier: None,
+                padding: None,
+                whitelist: Whitelist::Empty { with: None },
+            };
+
+            let response = handle(&mut deps, env.clone(), start_ido_msg);
+            let error = extract_error(response);
+            assert!(error.contains("End time must be greater than start time"));
+        }
+    }
+
+    #[test]
+    fn start_ido_end_in_the_past() {
+        let mut deps = initialize_with_default();
+        let ido_admin = HumanAddr::from("ido_admin");
+
+        let mut env = mock_env(&ido_admin, &[]);
+        env.block.time = 10;
+
+        for end_time in 1..10 {
+            let start_ido_msg = HandleMsg::StartIdo {
+                start_time: 0,
+                end_time,
+                token_contract: HumanAddr::from("token_contract"),
+                token_contract_hash: String::new(),
+                price: Uint128::from(1u128),
+                payment: PaymentMethod::Native,
+                total_amount: Uint128::from(100u128),
+                tokens_per_tier: None,
+                padding: None,
+                whitelist: Whitelist::Empty { with: None },
+            };
+
+            let response = handle(&mut deps, env.clone(), start_ido_msg);
+            let error = extract_error(response);
+            assert!(error.contains("Ido ends in the past"));
+        }
+    }
+
+    #[test]
+    fn start_ido_with_empty_whitelist() {
+        let mut deps = initialize_with_default();
+        let ido_admin = HumanAddr::from("ido_admin");
+
+        let mut env = mock_env(&ido_admin, &[]);
+        env.block.time = 0;
+
+        let allowed_addresses = (0..100)
+            .map(|n| HumanAddr::from(format!("address_{}", n)))
+            .collect::<Vec<_>>();
+
+        let start_ido_msg = HandleMsg::StartIdo {
+            start_time: 0,
+            end_time: 1,
+            token_contract: HumanAddr::from("token_contract"),
+            token_contract_hash: String::new(),
+            price: Uint128::from(1u128),
+            payment: PaymentMethod::Native,
+            total_amount: Uint128::from(100u128),
+            tokens_per_tier: None,
+            padding: None,
+            whitelist: Whitelist::Empty {
+                with: Some(allowed_addresses.clone()),
+            },
+        };
+
+        let response = handle(&mut deps, env, start_ido_msg).unwrap();
+        let data = response.data.unwrap();
+        let ido_id = match from_binary(&data).unwrap() {
+            HandleAnswer::StartIdo { ido_id, .. } => ido_id,
+            _ => unreachable!(),
+        };
+
+        assert_eq!(ido_id, 0);
+
+        let ido = Ido::load(&deps.storage, ido_id).unwrap();
+        assert!(!ido.shared_whitelist);
+
+        for address in allowed_addresses {
+            let in_whitelist = utils::in_whitelist(&deps, &address, ido_id).unwrap();
+            assert!(in_whitelist);
+        }
+
+        let random_address = HumanAddr::from("random_address");
+        let in_whitelist = utils::in_whitelist(&deps, &random_address, ido_id).unwrap();
+        assert!(!in_whitelist);
+    }
+
+    #[test]
+    fn start_ido_with_shared_whitelist() {
+        let mut deps = initialize_with_default();
+        let ido_admin = HumanAddr::from("ido_admin");
+
+        let mut env = mock_env(&ido_admin, &[]);
+        env.block.time = 0;
+
+        let blocked_addresses = (0..100)
+            .map(|n| HumanAddr::from(format!("address_{}", n)))
+            .collect::<Vec<_>>();
+
+        let start_ido_msg = HandleMsg::StartIdo {
+            start_time: 0,
+            end_time: 1,
+            token_contract: HumanAddr::from("token_contract"),
+            token_contract_hash: String::new(),
+            price: Uint128::from(1u128),
+            payment: PaymentMethod::Native,
+            total_amount: Uint128::from(100u128),
+            tokens_per_tier: None,
+            padding: None,
+            whitelist: Whitelist::Shared {
+                with_blocked: Some(blocked_addresses.clone()),
+            },
+        };
+
+        let response = handle(&mut deps, env, start_ido_msg).unwrap();
+        let data = response.data.unwrap();
+        let ido_id = match from_binary(&data).unwrap() {
+            HandleAnswer::StartIdo { ido_id, .. } => ido_id,
+            _ => unreachable!(),
+        };
+
+        assert_eq!(ido_id, 0);
+
+        let ido = Ido::load(&deps.storage, ido_id).unwrap();
+        assert!(ido.shared_whitelist);
+
+        for address in blocked_addresses {
+            let in_whitelist = utils::in_whitelist(&deps, &address, ido_id).unwrap();
+            assert!(!in_whitelist);
+        }
+
+        let random_address = HumanAddr::from("random_address");
+        let in_whitelist = utils::in_whitelist(&deps, &random_address, ido_id).unwrap();
+        assert!(in_whitelist);
+    }
+
+    #[test]
     fn start_ido() {
         let mut deps = initialize_with_default();
 
