@@ -247,4 +247,39 @@ describe("Tier", () => {
 
     assert.ok(Math.abs(delegationAmount - expectedDeposit) < 10);
   });
+
+  it("Redelegate", async () => {
+    const config = await tierContract.config(admin);
+    const old_validator = config.config.validator;
+
+    let old_delegation = await admin.query.staking.delegation({
+      delegator_addr: tierContract.contractInfo.address,
+      validator_addr: old_validator,
+    });
+
+    const validators = await admin.query.staking.validators({});
+    const new_validator = validators.validators![1].operator_address!;
+    await tierContract.redelegate(admin, new_validator);
+
+    const delegation = await admin.query.staking.delegation({
+      delegator_addr: tierContract.contractInfo.address,
+      validator_addr: new_validator,
+    });
+
+    assert.equal(
+      delegation.delegation_response?.balance?.amount,
+      old_delegation.delegation_response?.balance?.amount
+    );
+
+    await assert.rejects(
+      async () =>
+        await admin.query.staking.delegation({
+          delegator_addr: tierContract.contractInfo.address,
+          validator_addr: old_validator,
+        }),
+      (err: { message: string }) => {
+        return err.message.indexOf("not found") >= 0;
+      }
+    );
+  });
 });
