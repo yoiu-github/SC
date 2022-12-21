@@ -135,13 +135,13 @@ mod query {
 pub mod manual {
     use crate::msg::NftToken;
     use cosmwasm_std::{Api, Extern, HumanAddr, Querier, StdResult, Storage};
+    use std::sync::Mutex;
 
-    static mut TIER: u8 = 0;
+    static TIER: Mutex<u8> = Mutex::new(0);
 
     pub fn set_tier(tier: u8) {
-        unsafe {
-            TIER = tier;
-        }
+        let mut tier_lock = TIER.lock().unwrap();
+        *tier_lock = tier;
     }
 
     pub fn get_tier_index<S: Storage, A: Api, Q: Querier>(
@@ -149,7 +149,8 @@ pub mod manual {
         _address: HumanAddr,
         _token: Option<NftToken>,
     ) -> StdResult<u8> {
-        unsafe { Ok(TIER - 1) }
+        let tier_lock = TIER.lock().unwrap();
+        Ok(tier_lock.checked_sub(1).unwrap())
     }
 }
 

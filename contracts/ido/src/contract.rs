@@ -721,9 +721,8 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
 
 #[cfg(test)]
 mod test {
-    use crate::state::UserInfo;
-
     use super::*;
+    use crate::{state::UserInfo, tier::manual};
     use cosmwasm_std::{
         from_binary,
         testing::{mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage},
@@ -864,12 +863,17 @@ mod test {
         let user = HumanAddr::from("user");
         let new_admin = HumanAddr::from("new_admin");
 
-        let env = mock_env(&user, &[]);
         let change_admin_msg = HandleMsg::ChangeAdmin {
             admin: new_admin.clone(),
             padding: None,
         };
 
+        let env = mock_env(&user, &[]);
+        let response = handle(&mut deps, env, change_admin_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Unauthorized"));
+
+        let env = mock_env(&new_admin, &[]);
         let response = handle(&mut deps, env, change_admin_msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Unauthorized"));
@@ -1155,38 +1159,552 @@ mod test {
         }
     }
 
-    fn start_ido_with_tokens_per_tier(value: Vec<u128>) -> HandleMsg {
-        let mut msg = start_ido_msg();
+    fn change_tokens_per_tier(
+        msg: &mut HandleMsg,
+        mut tokens_per_tier: Option<Vec<u128>>,
+    ) -> Vec<u128> {
+        if tokens_per_tier.is_none() {
+            let mut total_amount = match msg {
+                HandleMsg::StartIdo { total_amount, .. } => total_amount.u128(),
+                _ => unreachable!(),
+            };
+
+            let mut rng = thread_rng();
+            let mut random_tokens_per_tier = Vec::with_capacity(5);
+
+            for _ in 0..3 {
+                let amount = if total_amount == 0 {
+                    rng.gen_range(0..total_amount)
+                } else {
+                    0
+                };
+
+                random_tokens_per_tier.push(amount);
+                total_amount -= amount;
+            }
+
+            random_tokens_per_tier.push(total_amount);
+            tokens_per_tier.replace(random_tokens_per_tier);
+        }
+
+        let new_tokens_per_tier = tokens_per_tier.unwrap();
+
         if let HandleMsg::StartIdo {
             ref mut tokens_per_tier,
             ..
         } = msg
         {
-            let value_uint128 = value.into_iter().map(Uint128).collect();
-            tokens_per_tier.replace(value_uint128);
+            let new_tokens_per_tier = new_tokens_per_tier
+                .clone()
+                .into_iter()
+                .map(Uint128)
+                .collect();
+
+            tokens_per_tier.replace(new_tokens_per_tier);
         }
 
-        msg
+        new_tokens_per_tier
     }
 
     #[test]
-    fn tokens_per_tier() {
+    fn start_ido_with_tokens_per_tier() {
         let mut deps = initialize_with_default();
+        let mut msg = start_ido_msg();
 
-        let msg = start_ido_with_tokens_per_tier(Vec::new());
+        change_tokens_per_tier(&mut msg, Some(Vec::new()));
         let ido_admin = HumanAddr::from("ido_admin");
         let env = mock_env(&ido_admin, &[]);
 
-        let response = handle(&mut deps, env.clone(), msg);
+        let response = handle(&mut deps, env.clone(), msg.clone());
         let error = extract_error(response);
         assert!(error.contains("Arrays have different length"));
 
-        let msg = start_ido_with_tokens_per_tier(vec![1, 2, 3, 4]);
-        let response = handle(&mut deps, env, msg);
+        change_tokens_per_tier(&mut msg, Some(vec![1, 2, 3, 4]));
+        let response = handle(&mut deps, env.clone(), msg.clone());
         let error = extract_error(response);
         assert!(
             error.contains("Sum of all tokens per tier must equal to the total amount of tokens")
         );
+
+        let tokens_per_tier = change_tokens_per_tier(&mut msg, None);
+        let response = handle(&mut deps, env, msg).unwrap();
+        let data = response.data.unwrap();
+        let ido_id = match from_binary(&data).unwrap() {
+            HandleAnswer::StartIdo { ido_id, .. } => ido_id,
+            _ => unreachable!(),
+        };
+
+        let ido = Ido::load(&deps.storage, ido_id).unwrap();
+        assert_eq!(ido.remaining_tokens_per_tier, Some(tokens_per_tier));
+    }
+
+    #[test]
+    fn buy_tokens_contract_not_active() {
+        let mut deps = initialize_with_default();
+
+        let mut config = Config::load(&deps.storage).unwrap();
+        config.status = ContractStatus::Stopped as u8;
+        config.save(&mut deps.storage).unwrap();
+
+        let user = HumanAddr::from("user");
+        let env = mock_env(&user, &[]);
+
+        let mut ido = Ido::default();
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(100u128),
+            token: None,
+            padding: None,
+        };
+
+        let response = handle(&mut deps, env, buy_tokens_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Contract is not active"));
+    }
+
+    #[test]
+    fn buy_tokens_ido_not_active() {
+        let mut deps = initialize_with_default();
+
+        let user = HumanAddr::from("user");
+        let mut env = mock_env(&user, &[]);
+        env.block.time = 5;
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let mut ido = Ido::default();
+        ido.start_time = 6;
+        ido.end_time = 10;
+        ido.payment_token_hash = Some(String::new());
+        ido.payment_token_contract = Some(canonical_token_contract);
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(100u128),
+            token: None,
+            padding: None,
+        };
+
+        assert!(!ido.is_active(env.block.time));
+
+        let response = handle(&mut deps, env, buy_tokens_msg);
+        let error = extract_error(response);
+        assert!(error.contains("IDO is not active"));
+    }
+
+    #[test]
+    fn buy_tokens_all_sold() {
+        let mut deps = initialize_with_default();
+
+        let user = HumanAddr::from("user");
+        let mut env = mock_env(&user, &coins(1, USCRT));
+        env.block.time = 5;
+
+        let mut ido = Ido::default();
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.total_tokens_amount = 100;
+        ido.sold_amount = 100;
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(1u128),
+            token: None,
+            padding: None,
+        };
+
+        let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone());
+        let error = extract_error(response);
+
+        assert!(error.contains("All tokens are sold"));
+        assert_eq!(ido.remaining_amount(), 0);
+
+        ido.sold_amount = 0;
+        ido.remaining_tokens_per_tier = Some(vec![0, 0, 0, 0]);
+        ido.save(&mut deps.storage).unwrap();
+
+        let response = handle(&mut deps, env, buy_tokens_msg);
+        let error = extract_error(response);
+
+        assert!(error.contains("All tokens are sold for your tier"));
+        assert_eq!(ido.remaining_amount(), 100);
+        assert_eq!(ido.remaining_tokens_per_tier(0), 0);
+    }
+
+    #[test]
+    fn buy_tokens_zero_amount() {
+        let mut deps = initialize_with_default();
+
+        let user = HumanAddr::from("user");
+        let mut env = mock_env(&user, &[]);
+        env.block.time = 5;
+
+        let mut ido = Ido::default();
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.payment_token_hash = None;
+        ido.payment_token_contract = None;
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        assert!(ido.is_native_payment());
+
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(100u128),
+            token: None,
+            padding: None,
+        };
+
+        let response = handle(&mut deps, env.clone(), buy_tokens_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Zero amount"));
+
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(0u128),
+            token: None,
+            padding: None,
+        };
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        ido.payment_token_hash = Some(String::new());
+        ido.payment_token_contract = Some(canonical_token_contract);
+        ido.save(&mut deps.storage).unwrap();
+
+        assert!(!ido.is_native_payment());
+
+        let response = handle(&mut deps, env, buy_tokens_msg);
+        let error = extract_error(response);
+        assert!(error.contains("Zero amount"));
+    }
+
+    fn buy_tokens_blacklisted() {
+        let mut deps = initialize_with_default();
+        let user = HumanAddr::from("user");
+        let canonical_user = deps.api.canonical_address(&user).unwrap();
+
+        let mut env = mock_env(&user, &[]);
+        env.block.time = 5;
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        manual::set_tier(1);
+
+        let mut ido = Ido::default();
+        ido.shared_whitelist = false;
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.payment_token_hash = Some(String::new());
+        ido.payment_token_contract = Some(canonical_token_contract);
+        ido.total_tokens_amount = 90;
+        ido.remaining_tokens_per_tier = Some(vec![30, 30, 30, 0]);
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::from(1u128),
+            token: None,
+            padding: None,
+        };
+
+        assert!(!utils::in_whitelist(&deps, &user, ido_id).unwrap());
+
+        let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("All tokens are sold for your tier"));
+
+        ido.shared_whitelist = true;
+        ido.save(&mut deps.storage).unwrap();
+
+        let whitelist = state::ido_whitelist(ido_id);
+        whitelist
+            .insert(&mut deps.storage, &canonical_user, &false)
+            .unwrap();
+
+        assert!(!utils::in_whitelist(&deps, &user, ido_id).unwrap());
+
+        let response = handle(&mut deps, env, buy_tokens_msg);
+        let error = extract_error(response);
+        assert!(error.contains("All tokens are sold for your tier"));
+    }
+
+    fn buy_tokens_with_native_payment() {
+        let init_msg = get_init_msg();
+        let mut deps = initialize_with(init_msg.clone()).unwrap();
+
+        let ido_admin = HumanAddr::from("ido_admin");
+        let canonical_ido_admin = deps.api.canonical_address(&ido_admin).unwrap();
+
+        let user = HumanAddr::from("user");
+
+        let max_payments = init_msg.max_payments;
+        let lock_periods = init_msg.lock_periods;
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let mut ido = Ido::default();
+        ido.admin = canonical_ido_admin;
+        ido.shared_whitelist = true;
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.payment_token_contract = None;
+        ido.payment_token_hash = None;
+        ido.total_tokens_amount = 100_000;
+        ido.price = 2;
+        ido.token_contract = canonical_token_contract;
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+        let buy_tokens_msg = HandleMsg::BuyTokens {
+            ido_id,
+            amount: Uint128::zero(),
+            token: None,
+            padding: None,
+        };
+
+        manual::set_tier(1);
+        let tier_index = 0;
+
+        let tokens_amount = max_payments[0].u128() / ido.price;
+        let mut env = mock_env(&user, &coins(tokens_amount, USCRT));
+        env.block.time = 5;
+
+        let response = handle(&mut deps, env.clone(), buy_tokens_msg).unwrap();
+        let data = response.data.unwrap();
+
+        match from_binary(&data).unwrap() {
+            HandleAnswer::BuyTokens {
+                amount,
+                unlock_time,
+                status,
+            } => {
+                assert_eq!(amount.u128(), tokens_amount);
+                assert_eq!(unlock_time, lock_periods[tier_index] + ido.end_time);
+                assert_eq!(status, ResponseStatus::Success);
+            }
+            _ => unreachable!(),
+        }
+
+        let messages = response.messages;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0],
+            CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address,
+                to_address: ido_admin,
+                amount: coins(tokens_amount, USCRT),
+            })
+        );
+    }
+
+    fn buy_tokens_with_tokens_per_tier() {
+        let init_msg = get_init_msg();
+        let mut deps = initialize_with(init_msg).unwrap();
+
+        let ido_admin = HumanAddr::from("ido_admin");
+        let canonical_ido_admin = deps.api.canonical_address(&ido_admin).unwrap();
+
+        let user = HumanAddr::from("user");
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let tokens_per_tier = vec![4, 3, 2, 1];
+
+        let mut ido = Ido::default();
+        ido.admin = canonical_ido_admin;
+        ido.shared_whitelist = true;
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.payment_token_contract = None;
+        ido.payment_token_hash = None;
+        ido.total_tokens_amount = 100;
+        ido.price = 2;
+        ido.token_contract = canonical_token_contract;
+        ido.remaining_tokens_per_tier = Some(tokens_per_tier.clone());
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        for tier in (1..=4).rev() {
+            manual::set_tier(tier);
+            let tier_index = (tier - 1) as usize;
+            let tokens_amount = tokens_per_tier.get(tier_index).unwrap();
+
+            let mut env = mock_env(&user, &coins(*tokens_amount + 1, USCRT));
+            env.block.time = 5;
+
+            let buy_tokens_msg = HandleMsg::BuyTokens {
+                ido_id,
+                amount: Uint128::zero(),
+                token: None,
+                padding: None,
+            };
+
+            let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone());
+            let error = extract_error(response);
+            assert!(error.contains(&format!(
+                "You cannot buy more than {} tokens",
+                tokens_amount
+            )));
+
+            let mut env = mock_env(&user, &coins(*tokens_amount, USCRT));
+            env.block.time = 5;
+
+            handle(&mut deps, env.clone(), buy_tokens_msg.clone()).unwrap();
+
+            let mut env = mock_env(&user, &coins(1, USCRT));
+            env.block.time = 5;
+
+            let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone());
+            let error = extract_error(response);
+            assert!(error.contains("All tokens are sold for your tier"));
+        }
+    }
+
+    fn buy_tokens_state_check() {
+        let init_msg = get_init_msg();
+        let mut deps = initialize_with(init_msg.clone()).unwrap();
+
+        let max_payments = init_msg.max_payments;
+        let lock_periods = init_msg.lock_periods;
+
+        let ido_admin = HumanAddr::from("ido_admin");
+        let canonical_ido_admin = deps.api.canonical_address(&ido_admin).unwrap();
+
+        let user = HumanAddr::from("user");
+        let canonical_user = deps.api.canonical_address(&user).unwrap();
+
+        let mut env = mock_env(&user, &[]);
+        env.block.time = 5;
+
+        let payment_token_hash = String::from("payment_token_hash");
+        let payment_token_contract = HumanAddr::from("payment_contract");
+        let canonical_payment_token_contract =
+            deps.api.canonical_address(&payment_token_contract).unwrap();
+
+        let token_contract = HumanAddr::from("token_contract");
+        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
+
+        let mut ido = Ido::default();
+        ido.admin = canonical_ido_admin;
+        ido.shared_whitelist = true;
+        ido.start_time = 0;
+        ido.end_time = 10;
+        ido.payment_token_contract = Some(canonical_payment_token_contract);
+        ido.payment_token_hash = Some(payment_token_hash.clone());
+        ido.total_tokens_amount = 100_000;
+        ido.price = 2;
+        ido.token_contract = canonical_token_contract;
+
+        let ido_id = ido.save(&mut deps.storage).unwrap();
+
+        let user_info_list = state::user_info();
+        let user_info_in_ido_list = state::user_info_in_ido(&canonical_user);
+        let config = Config::load(&deps.storage).unwrap();
+        let min_tier = config.min_tier();
+
+        let mut bought_amount = 0;
+        for tier in (1..=4).rev() {
+            manual::set_tier(tier);
+
+            let tier_index = get_tier_index(&deps, user.clone(), None).unwrap() as usize;
+            let max_tokens_amount = max_payments[tier_index].u128() / ido.price;
+            let tokens_amount = max_tokens_amount - bought_amount;
+
+            bought_amount = max_tokens_amount;
+
+            let buy_too_much_tokens = HandleMsg::BuyTokens {
+                ido_id,
+                amount: Uint128::from(tokens_amount + 1),
+                token: None,
+                padding: None,
+            };
+
+            let response = handle(&mut deps, env.clone(), buy_too_much_tokens.clone());
+            let error = extract_error(response);
+            assert!(error.contains(&format!(
+                "You cannot buy more than {} tokens",
+                tokens_amount
+            )));
+
+            let buy_tokens_msg = HandleMsg::BuyTokens {
+                ido_id,
+                amount: Uint128::from(tokens_amount),
+                token: None,
+                padding: None,
+            };
+
+            let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone()).unwrap();
+            let data = response.data.unwrap();
+
+            match from_binary(&data).unwrap() {
+                HandleAnswer::BuyTokens {
+                    amount,
+                    unlock_time,
+                    status,
+                } => {
+                    assert_eq!(amount.u128(), tokens_amount);
+                    assert_eq!(unlock_time, lock_periods[tier_index] + ido.end_time);
+                    assert_eq!(status, ResponseStatus::Success);
+                }
+                _ => unreachable!(),
+            }
+
+            let messages = response.messages;
+            assert_eq!(messages.len(), 1);
+            assert_eq!(
+                messages[0],
+                transfer_from_msg(
+                    user.clone(),
+                    ido_admin.clone(),
+                    Uint128::from(tokens_amount * ido.price),
+                    None,
+                    None,
+                    BLOCK_SIZE,
+                    payment_token_hash.clone(),
+                    payment_token_contract.clone(),
+                )
+                .unwrap()
+            );
+
+            let user_info = user_info_list.get(&deps.storage, &canonical_user).unwrap();
+            assert_eq!(user_info.total_payment, max_tokens_amount * ido.price);
+            assert_eq!(user_info.total_tokens_bought, max_tokens_amount);
+            assert_eq!(user_info.total_tokens_received, 0);
+
+            let user_ido_info = user_info_in_ido_list.get(&deps.storage, &ido_id).unwrap();
+            assert_eq!(user_info, user_ido_info);
+
+            let purchases = state::purchases(&canonical_user, ido_id);
+            let purchases_len = purchases.get_len(&deps.storage).unwrap();
+            assert_eq!(purchases_len, (min_tier - tier + 1) as u32);
+
+            let buy_another_token = HandleMsg::BuyTokens {
+                ido_id,
+                amount: Uint128::from(1u128),
+                token: None,
+                padding: None,
+            };
+
+            let response = handle(&mut deps, env.clone(), buy_another_token.clone());
+            let error = extract_error(response);
+            assert!(error.contains("You cannot buy more tokens with current tier",));
+        }
+    }
+
+    #[test]
+    fn buy_tokens() {
+        buy_tokens_blacklisted();
+        buy_tokens_with_native_payment();
+        buy_tokens_with_tokens_per_tier();
+        buy_tokens_state_check();
     }
 
     #[test]
@@ -1245,7 +1763,7 @@ mod test {
                 whitelist: Whitelist::Empty { ref with },
                 ..
             } => with.as_ref().unwrap().clone(),
-            _ => panic!(),
+            _ => unreachable!(),
         };
 
         let whitelist_len = whitelist.len() as u32;
