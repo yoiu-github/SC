@@ -1,6 +1,6 @@
 # Requirements
 
-The project was build with: `rustc 1.63.0`, `node v18.10.0`, `yarn 1.22.19`,
+The project was build with: `rustc 1.64.0`, `node v19.3.0`, `yarn 1.22.19`,
 `wasm-opt 105`.
 
 # Test
@@ -23,7 +23,7 @@ Check secretcli version:
 
 ```bash
 secretcli version
-# Should return 1.4.0 or higher
+# Should return 1.6.0 or higher
 ```
 
 Run:
@@ -32,7 +32,14 @@ Run:
 WALLET="my wallet name"
 WALLET_ADDRESS="my wallet address"
 TIER_LABEL="tier contract"
+
+# Choose a validator
+secretcli query staking validators
+
+# For example, we choose this one
 VALIDATOR="secretvaloper1p0re3rp685fqsngfdvxg34wkwu9am2p4ckeq2h"
+
+secretcli config broadcast-mode block
 
 # Find code_id value from the output
 secretcli tx compute store ./build/tier.wasm \
@@ -43,12 +50,21 @@ secretcli tx compute store ./build/tier.wasm \
 # example code id
 TIER_CODE_ID="165020"
 
+# testnet
+BAND_CONTRACT=secret14swdnnllsfvtnvwmtvnvcj2zu0njsl9cdkk5xp
+
+# mainnet
+# BAND_CONTRACT=secret1ezamax2vrhjpy92fnujlpwfj2dpredaafss47k
+
+BAND_CONTRACT_HASH=$(secretcli query compute contract-hash "$BAND_CONTRACT" | tail -c +3)
+
 secretcli tx compute instantiate                     \
     "$TIER_CODE_ID"                                  \
     '{
         "validator": "'"${VALIDATOR}"'",
-        "deposits": ["500", "750", "5000", "10000"],
-        "lock_periods": [60, 120, 180, 240]
+        "deposits": ["25000", "7500", "1500", "250"],
+        "band_oracle": "'"${BAND_CONTRACT}"'",
+        "band_code_hash": "'"${BAND_CONTRACT_HASH}"'"
     }'                                               \
     --gas 1500000                                    \
     --from "$WALLET"                                 \
@@ -84,7 +100,7 @@ To check your tier:
 secretcli q compute query "$TIER_ADDRESS" \
     '{ "user_info": {"address":"'"$WALLET_ADDRESS"'"} }'
 
-# {"user_info":{"tier":2,"deposit":"5000","withdraw_time":1664866566,"timestamp":1664866386}}
+# {"user_info":{"tier":4,"timestamp":1671696042,"usd_deposit":"250","scrt_deposit":"318"}}
 ```
 
 To withdraw your SCRT:
@@ -128,26 +144,18 @@ Instantiate contract:
 ```bash
 NFT_ADDRESS="nft contract address"
 
-# testnet
-SSCRT_ADDRESS="secret1umwqjum7f4zmp9alr2kpmq4y5j4hyxlam896r3"
-# mainnet
-# SSCRT_CONTRACT="secret1k0jntykt7e4g3y88ltc60czgjuqdy4c9e8fzek"
-
-NFT_CONTRACT_HASH=$(secretcli query compute contract-hash "${NFT_ADDRESS}")
-TIER_CONTRACT_HASH=$(secretcli query compute contract-hash "${TIER_ADDRESS}")
-SSCRT_CONTRACT_HASH=$(secretcli query compute contract-hash "${SSCRT_ADDRESS}")
+NFT_CONTRACT_HASH=$(secretcli query compute contract-hash "${NFT_ADDRESS}" | tail -c +3)
+TIER_CONTRACT_HASH=$(secretcli query compute contract-hash "${TIER_ADDRESS}" | tail -c +3)
 
 secretcli tx compute instantiate                             \
     "$IDO_CODE_ID"                                           \
     '{
-        "max_payments": ["5000", "7500", "50000", "100000"],
-        "lock_periods": [1728000, 1728000, 1728000, 864000],
+        "max_payments": ["100000", "50000", "7500", "5000"],
+        "lock_periods": [864000, 1728000, 1728000, 1728000],
         "nft_contract": "'"${NFT_ADDRESS}"'",
         "nft_contract_hash": "'"${NFT_CONTRACT_HASH}"'",
         "tier_contract": "'"${TIER_ADDRESS}"'",
-        "tier_contract_hash": "'"${TIER_CONTRACT_HASH}"'",
-        "token_contract": "'"${SSCRT_ADDRESS}"'",
-        "token_contract_hash": "'"${SSCRT_CONTRACT_HASH}"'"
+        "tier_contract_hash": "'"${TIER_CONTRACT_HASH}"'"
     }'                                                       \
     --gas 2000000                                            \
     --from "$WALLET"                                         \
@@ -171,8 +179,17 @@ Create IDO:
 
 ```bash
 AMOUNT=10000
+TOKENS_PER_TIER='["4000", "3000", "2000", "1000"]'
 
-secretcli tx compute execute "$SNIP_20_ADDRESS"    \
+IDO_TOKEN="snip20 token contract address"
+IDO_TOKEN="secret1t4jxmxn6gsf6kjzs3wdj4cvmn8plydyfag3fss"
+IDO_TOKEN_HASH=$(secretcli query compute contract-hash "${IDO_TOKEN}" | tail -c +3)
+
+PAYMENT_TOKEN="snip20 token contract address"
+PAYMENT_TOKEN="secret1t4jxmxn6gsf6kjzs3wdj4cvmn8plydyfag3fss"
+PAYMENT_TOKEN_HASH=$(secretcli query compute contract-hash "${PAYMENT_TOKEN}" | tail -c +3)
+
+secretcli tx compute execute "$IDO_TOKEN"    \
     '{
         "increase_allowance": {
             "spender": "'"$IDO_ADDRESS"'",
@@ -182,29 +199,55 @@ secretcli tx compute execute "$SNIP_20_ADDRESS"    \
     --from "$WALLET"                               \
     --yes
 
-secretcli tx compute execute "$IDO_ADDRESS"                \
+# pay with native token
+# PAYMENT_TOKEN='"native"'
+
+# pay with custom token
+PAYMENT_TOKEN_OPTION='{
+    "token": {
+        "contract": "'"${PAYMENT_TOKEN}"'",
+        "code_hash": "'"${PAYMENT_TOKEN_HASH}"'"
+    }
+}'
+
+# shared whitelist
+WHITELIST_OPTION='{"shared": {}}'
+
+# empty whitelist
+# WHITELIST_OPTION='{"empty": {}}'
+
+START_TIME=$(date +%s)
+END_TIME=$(date --date='2025-01-01' +%s)
+PRICE=100
+
+secretcli tx compute execute "$IDO_ADDRESS"                    \
     '{
         "start_ido": {
-            "start_time": 1234,
-            "end_time": 1234,
+            "start_time": '"${START_TIME}"',
+            "end_time": '"${END_TIME}"',
             "total_amount": "'"$AMOUNT"'",
-            "price": "100",
-            "token_contract": "snip 20 contract address",
-            "token_contract_hash": "snip 20 contract hash"
+            "tokens_per_tier": '"${TOKENS_PER_TIER}"',
+            "price": "'"${PRICE}"'",
+            "token_contract": "'"${IDO_TOKEN}"'",
+            "token_contract_hash": "'"${IDO_TOKEN_HASH}"'",
+            "payment": '"${PAYMENT_TOKEN_OPTION}"',
+            "whitelist": '"${WHITELIST_OPTION}"'
         }
-    }'                                                     \
-    --from "$WALLET"                                       \
+    }'                                                         \
+    --from "$WALLET"                                           \
     --yes
 ```
 
 Add whitelist:
 
 ```bash
+IDO_ID=0
+
 secretcli tx compute execute "$IDO_ADDRESS" \
     '{
         "whitelist_add": {
             "addresses": ["user address"],
-            "ido_id": ido_id
+            "ido_id": '"${IDO_ID}"'
         }
     }'                                      \
     --from "$WALLET"                        \
@@ -220,13 +263,7 @@ AMOUNT=20
 # amount * price
 MONEY=2000
 
-secretcli tx compute execute "$SSCRT_ADDRESS" \
-    '{ "deposit": {} }'                       \
-    --from "$WALLET"                          \
-    --amount "${MONEY}"uscrt                  \
-    --yes
-
-secretcli tx compute execute "$SSCRT_ADDRESS" \
+secretcli tx compute execute "$PAYMENT_TOKEN" \
     '{
         "increase_allowance": {
             "spender": "'"$IDO_ADDRESS"'",
