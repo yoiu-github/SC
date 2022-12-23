@@ -150,8 +150,7 @@ TIER_CONTRACT_HASH=$(secretcli query compute contract-hash "${TIER_ADDRESS}" | t
 secretcli tx compute instantiate                             \
     "$IDO_CODE_ID"                                           \
     '{
-        "max_payments": ["100000", "50000", "7500", "5000"],
-        "lock_periods": [864000, 1728000, 1728000, 1728000],
+        "lock_periods": [864000, 1728000, 1728000, 1728000, 1728000],
         "nft_contract": "'"${NFT_ADDRESS}"'",
         "nft_contract_hash": "'"${NFT_CONTRACT_HASH}"'",
         "tier_contract": "'"${TIER_ADDRESS}"'",
@@ -182,11 +181,9 @@ AMOUNT=10000
 TOKENS_PER_TIER='["4000", "3000", "2000", "1000"]'
 
 IDO_TOKEN="snip20 token contract address"
-IDO_TOKEN="secret1t4jxmxn6gsf6kjzs3wdj4cvmn8plydyfag3fss"
 IDO_TOKEN_HASH=$(secretcli query compute contract-hash "${IDO_TOKEN}" | tail -c +3)
 
 PAYMENT_TOKEN="snip20 token contract address"
-PAYMENT_TOKEN="secret1t4jxmxn6gsf6kjzs3wdj4cvmn8plydyfag3fss"
 PAYMENT_TOKEN_HASH=$(secretcli query compute contract-hash "${PAYMENT_TOKEN}" | tail -c +3)
 
 secretcli tx compute execute "$IDO_TOKEN"    \
