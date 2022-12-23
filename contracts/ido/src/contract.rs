@@ -242,7 +242,6 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
     let answer = to_binary(&HandleAnswer::StartIdo {
         ido_id,
         status: ResponseStatus::Success,
-        whitelist_size: ido_whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -570,7 +569,6 @@ fn whitelist_add<S: Storage, A: Api, Q: Querier>(
 
     let answer = to_binary(&HandleAnswer::WhitelistAdd {
         status: ResponseStatus::Success,
-        whitelist_size: whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -597,7 +595,6 @@ fn whitelist_remove<S: Storage, A: Api, Q: Querier>(
 
     let answer = to_binary(&HandleAnswer::WhitelistRemove {
         status: ResponseStatus::Success,
-        whitelist_size: whitelist.get_len(&deps.storage)?,
     })?;
 
     Ok(HandleResponse {
@@ -628,24 +625,6 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
         QueryMsg::InWhitelist { address, ido_id } => {
             let in_whitelist = utils::in_whitelist(deps, &address, ido_id)?;
             QueryAnswer::InWhitelist { in_whitelist }
-        }
-        QueryMsg::Whitelist {
-            ido_id,
-            start,
-            limit,
-        } => {
-            let whitelist = state::ido_whitelist(ido_id);
-            let canonical_addresses = whitelist.paging_keys(&deps.storage, start, limit)?;
-            let mut addresses = Vec::with_capacity(canonical_addresses.len());
-
-            for canonical_address in canonical_addresses {
-                let address = deps.api.human_address(&canonical_address)?;
-                addresses.push(address);
-            }
-
-            let amount = whitelist.get_len(&deps.storage)?;
-
-            QueryAnswer::Whitelist { addresses, amount }
         }
         QueryMsg::IdoListOwnedBy {
             address,
@@ -1609,6 +1588,9 @@ mod tests {
                 .unwrap()
             );
 
+            let ido = Ido::load(&deps.storage, ido_id).unwrap();
+            assert_eq!(ido.participants, 1);
+
             let user_info = user_info_list.get(&deps.storage, &canonical_user).unwrap();
             assert_eq!(user_info.total_tokens_received, 0);
             assert_eq!(
@@ -1711,10 +1693,7 @@ mod tests {
             _ => unreachable!(),
         };
 
-        let whitelist_len = whitelist.len() as u32;
-
         let ido_admin = HumanAddr::from("ido_admin");
-
         let env = mock_env(ido_admin.clone(), &[]);
         handle(&mut deps, env, start_ido_msg).unwrap();
 
@@ -1736,11 +1715,7 @@ mod tests {
         let response = handle(&mut deps, env, remove_whitelist_msg).unwrap();
 
         match from_binary(&response.data.unwrap()).unwrap() {
-            HandleAnswer::WhitelistRemove {
-                whitelist_size,
-                status,
-            } => {
-                assert_eq!(whitelist_size, whitelist_len);
+            HandleAnswer::WhitelistRemove { status } => {
                 assert_eq!(status, ResponseStatus::Success);
             }
             _ => unreachable!(),

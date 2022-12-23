@@ -33,31 +33,6 @@ export class BaseContract {
     });
   }
 
-  private async getContractInfo(
-    client: SecretNetworkClient,
-    label: string
-  ): Promise<ContractDeployInfo | undefined> {
-    let contract: QueryContractAddressResponse;
-    let contractAddress: string;
-
-    try {
-      contract = await client.query.compute.addressByLabel({ label });
-      contractAddress = contract.contract_address!;
-    } catch {
-      return;
-    }
-
-    if (contractAddress == null) {
-      return;
-    }
-
-    const codeHash = await client.query.compute.codeHashByContractAddress({
-      contract_address: contractAddress,
-    });
-
-    return { address: contractAddress, codeHash: codeHash.code_hash! };
-  }
-
   wasmHash() {
     if (this.path == null) {
       throw new Error("Specify path first");

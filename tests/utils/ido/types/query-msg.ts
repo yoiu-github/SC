@@ -19,14 +19,6 @@ export type InWhitelist = {
   };
 };
 
-export type Whitelist = {
-  whitelist: {
-    ido_id: number;
-    limit: number;
-    start: number;
-  };
-};
-
 export type IdoListOwnedBy = {
   ido_list_owned_by: {
     address: HumanAddr;

@@ -63,17 +63,27 @@ describe("Tier", () => {
   it("Deposit with wrong denom", async () => {
     user = await getUser(endpoint, chainId, 0);
 
-    await assert.rejects(async () => {
-      const amount = await bandContract.calculateUscrtAmount(admin, 100);
-      await tierContract.deposit(user, amount, "sscrt");
-    });
+    await assert.rejects(
+      async () => {
+        const amount = await bandContract.calculateUscrtAmount(admin, 100);
+        await tierContract.deposit(user, amount, "sscrt");
+      },
+      (err: Error) => {
+        return err.message.indexOf("insufficient funds") >= 0;
+      }
+    );
   });
 
   it("Deposit less than min amount", async () => {
-    await assert.rejects(async () => {
-      const amount = await bandContract.calculateUscrtAmount(admin, 99);
-      await tierContract.deposit(user, amount);
-    });
+    await assert.rejects(
+      async () => {
+        const amount = await bandContract.calculateUscrtAmount(admin, 99);
+        await tierContract.deposit(user, amount);
+      },
+      (err: Error) => {
+        return err.message.indexOf("You should deposit at least 100 USD") >= 0;
+      }
+    );
 
     const userInfo = await tierContract.userInfo(user);
     assert.equal(userInfo.user_info.tier, 5);
@@ -104,9 +114,14 @@ describe("Tier", () => {
   });
 
   it("Try to change status with user", async () => {
-    await assert.rejects(async () => {
-      await tierContract.changeStatus(user, "stopped");
-    });
+    await assert.rejects(
+      async () => {
+        await tierContract.changeStatus(user, "stopped");
+      },
+      (err: Error) => {
+        return err.message.indexOf("unauthorized") >= 0;
+      }
+    );
   });
 
   it("Change status to stopped", async () => {
@@ -116,10 +131,15 @@ describe("Tier", () => {
   });
 
   it("Try to deposit with stopped contract", async () => {
-    await assert.rejects(async () => {
-      const amount = await bandContract.calculateUscrtAmount(admin, 300);
-      await tierContract.deposit(user, amount);
-    });
+    await assert.rejects(
+      async () => {
+        const amount = await bandContract.calculateUscrtAmount(admin, 300);
+        await tierContract.deposit(user, amount);
+      },
+      (err: Error) => {
+        return err.message.indexOf("Contract is not active") >= 0;
+      }
+    );
   });
 
   it("Change status to active", async () => {
@@ -169,10 +189,15 @@ describe("Tier", () => {
   });
 
   it("Try to increase tier", async () => {
-    await assert.rejects(async () => {
-      const amount = await bandContract.calculateUscrtAmount(admin, 500_000);
-      await tierContract.deposit(user, amount);
-    });
+    await assert.rejects(
+      async () => {
+        const amount = await bandContract.calculateUscrtAmount(admin, 500_000);
+        await tierContract.deposit(user, amount);
+      },
+      (err: Error) => {
+        return err.message.indexOf("Reached max tier") >= 0;
+      }
+    );
   });
 
   it("Withdraw tokens", async () => {
@@ -246,6 +271,17 @@ describe("Tier", () => {
     );
 
     assert.ok(Math.abs(delegationAmount - expectedDeposit) < 10);
+  });
+
+  it("Try to claim without unbonding period", async () => {
+    await assert.rejects(
+      async () => {
+        await tierContract.claim(user);
+      },
+      (err: Error) => {
+        return err.message.indexOf("Nothing to claim") >= 0;
+      }
+    );
   });
 
   it("Redelegate", async () => {

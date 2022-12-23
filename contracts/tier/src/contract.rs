@@ -172,7 +172,7 @@ pub fn try_deposit<S: Storage, A: Api, Q: Querier>(
 
     if current_tier == new_tier {
         if current_tier == config.max_tier() {
-            return Err(StdError::generic_err("Reached max tear"));
+            return Err(StdError::generic_err("Reached max tier"));
         }
 
         let next_tier = current_tier.checked_sub(1).unwrap();
@@ -941,7 +941,7 @@ mod tests {
 
         let response = handle(&mut deps, env, deposit_msg);
         let error = extract_error(response);
-        assert!(error.contains("Reached max tear"));
+        assert!(error.contains("Reached max tier"));
     }
 
     #[test]

@@ -447,7 +447,6 @@ describe("IDO", () => {
 
   it("Buy tokens in blacklist", async () => {
     const tier = 4;
-    const tierIndex = tier - 1;
     await tierContract.setTier(user, tier, bandContract);
     const userInfo = await tierContract.userInfo(user);
     assert.equal(userInfo.user_info.tier, tier);

@@ -117,15 +117,12 @@ pub enum HandleAnswer {
     },
     StartIdo {
         ido_id: u32,
-        whitelist_size: u32,
         status: ResponseStatus,
     },
     WhitelistAdd {
-        whitelist_size: u32,
         status: ResponseStatus,
     },
     WhitelistRemove {
-        whitelist_size: u32,
         status: ResponseStatus,
     },
     BuyTokens {
@@ -154,11 +151,6 @@ pub enum QueryMsg {
     InWhitelist {
         address: HumanAddr,
         ido_id: u32,
-    },
-    Whitelist {
-        ido_id: u32,
-        start: u32,
-        limit: u32,
     },
     IdoListOwnedBy {
         address: HumanAddr,
@@ -221,10 +213,6 @@ pub enum QueryAnswer {
     },
     InWhitelist {
         in_whitelist: bool,
-    },
-    Whitelist {
-        addresses: Vec<HumanAddr>,
-        amount: u32,
     },
     IdoListOwnedBy {
         ido_ids: Vec<u32>,

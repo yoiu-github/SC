@@ -14,21 +14,18 @@ export type StartIdo = {
   start_ido: {
     ido_id: number;
     status: ResponseStatus;
-    whitelist_size: number;
   };
 };
 
 export type WhitelistAdd = {
   whitelist_add: {
     status: ResponseStatus;
-    whitelist_size: number;
   };
 };
 
 export type WhitelistRemove = {
   whitelist_remove: {
     status: ResponseStatus;
-    whitelist_size: number;
   };
 };
 

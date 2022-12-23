@@ -96,6 +96,20 @@ export class Contract extends BaseContract {
     return response[0] as Tier.HandleAnswer.Withdraw;
   }
 
+  async claim(
+    client: SecretNetworkClient,
+    recipient?: string
+  ): Promise<Tier.HandleAnswer.Claim> {
+    const withdrawMsg = getExecuteMsg<Tier.HandleMsg.Claim>(
+      this.contractInfo,
+      client.address,
+      { claim: { recipient } }
+    );
+
+    const response = await broadcastWithCheck(client, [withdrawMsg]);
+    return response[0] as Tier.HandleAnswer.Claim;
+  }
+
   async withdrawRewards(
     client: SecretNetworkClient,
     recipient?: string
