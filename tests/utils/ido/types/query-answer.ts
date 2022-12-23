@@ -2,13 +2,10 @@ export type Config = {
   config: {
     admin: HumanAddr;
     lock_periods: number[];
-    max_payments: Uint128[];
     nft_contract: HumanAddr;
     nft_contract_hash: string;
     tier_contract: HumanAddr;
     tier_contract_hash: string;
-    token_contract: HumanAddr;
-    token_contract_hash: string;
   };
 };
 
@@ -31,9 +28,10 @@ export type IdoInfo = {
   ido_info: {
     admin: HumanAddr;
     end_time: number;
-    payment: PaymentMethod;
     participants: number;
+    payment: PaymentMethod;
     price: Uint128;
+    shared_whitelist: boolean;
     sold_amount: Uint128;
     start_time: number;
     token_contract: HumanAddr;
@@ -41,7 +39,6 @@ export type IdoInfo = {
     total_payment: Uint128;
     total_tokens_amount: Uint128;
     withdrawn: boolean;
-    shared_whitelist: boolean;
   };
 };
 

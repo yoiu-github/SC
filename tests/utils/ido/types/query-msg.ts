@@ -15,13 +15,13 @@ export type IdoInfo = {
 export type InWhitelist = {
   in_whitelist: {
     address: HumanAddr;
-    ido_id?: number | null;
+    ido_id: number;
   };
 };
 
 export type Whitelist = {
   whitelist: {
-    ido_id?: number | null;
+    ido_id: number;
     limit: number;
     start: number;
   };

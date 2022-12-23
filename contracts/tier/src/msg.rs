@@ -137,6 +137,7 @@ pub enum QueryAnswer {
         band_oracle: HumanAddr,
         band_code_hash: String,
         usd_deposits: Vec<Uint128>,
+        min_tier: u8,
     },
     UserInfo {
         tier: u8,

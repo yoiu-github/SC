@@ -296,7 +296,7 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
     let length = withdrawals.get_len(&deps.storage)?;
 
     if length == 0 {
-        return Err(StdError::generic_err("Nothing to withdraw"));
+        return Err(StdError::generic_err("Nothing to claim"));
     }
 
     let recipient = recipient.unwrap_or(env.message.sender);
@@ -306,7 +306,7 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
 
     let current_time = env.block.time;
     let mut remove_indices = Vec::new();
-    let mut withdraw_amount = 0u128;
+    let mut claim_amount = 0u128;
 
     for (index, withdrawal) in withdrawals_iter.enumerate() {
         let withdrawal = withdrawal?;
@@ -314,20 +314,12 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
 
         if current_time >= claim_time {
             remove_indices.push(index);
-            withdraw_amount = withdraw_amount.checked_add(withdrawal.amount).unwrap();
+            claim_amount = claim_amount.checked_add(withdrawal.amount).unwrap();
         }
     }
 
-    if withdraw_amount == 0 {
-        let answer = to_binary(&HandleAnswer::Claim {
-            amount: Uint128(0),
-            status: ResponseStatus::Success,
-        })?;
-
-        return Ok(HandleResponse {
-            data: Some(answer),
-            ..Default::default()
-        });
+    if claim_amount == 0 {
+        return Err(StdError::generic_err("Nothing to claim"));
     }
 
     for (shift, index) in remove_indices.into_iter().enumerate() {
@@ -338,12 +330,12 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
     let send_msg = BankMsg::Send {
         from_address: env.contract.address,
         to_address: recipient,
-        amount: coins(withdraw_amount, USCRT),
+        amount: coins(claim_amount, USCRT),
     };
 
     let msg = CosmosMsg::Bank(send_msg);
     let answer = to_binary(&HandleAnswer::Claim {
-        amount: withdraw_amount.into(),
+        amount: claim_amount.into(),
         status: ResponseStatus::Success,
     })?;
 
@@ -1037,6 +1029,11 @@ mod tests {
             padding: None,
         };
 
+        // Try to claim without any deposit
+        let response = handle(&mut deps, env.clone(), claim_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Nothing to claim"));
+
         // Deposit some tokens
         let deposit = 750 * 2;
         env.message.sent_funds = coins(deposit, USCRT);
@@ -1056,15 +1053,9 @@ mod tests {
         assert_eq!(withdrawals[0].claim_time, claim_time);
 
         // Try to claim without waiting for unbond period
-        let response = handle(&mut deps, env.clone(), claim_msg.clone()).unwrap();
-        assert_eq!(response.messages.len(), 0);
-
-        match from_binary(&response.data.unwrap()).unwrap() {
-            HandleAnswer::Claim { amount, .. } => {
-                assert_eq!(amount, Uint128(0))
-            }
-            _ => unreachable!(),
-        }
+        let response = handle(&mut deps, env.clone(), claim_msg.clone());
+        let error = extract_error(response);
+        assert!(error.contains("Nothing to claim"));
 
         env.block.time += 21 * day;
         let response = handle(&mut deps, env.clone(), claim_msg).unwrap();

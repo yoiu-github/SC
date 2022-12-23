@@ -33,14 +33,14 @@ export type StartIdo = {
   start_ido: {
     end_time: number;
     padding?: string | null;
+    payment: PaymentMethod;
     price: Uint128;
     start_time: number;
     token_contract: HumanAddr;
     token_contract_hash: string;
-    tokens_per_tier?: Uint128[] | null;
+    tokens_per_tier: Uint128[];
     total_amount: Uint128;
     whitelist: Whitelist;
-    payment: PaymentMethod;
   };
 };
 

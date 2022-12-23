@@ -1,11 +1,12 @@
 export type Config = {
   config: {
     admin: HumanAddr;
-    validator: HumanAddr;
-    status: ContractStatus;
-    band_oracle: HumanAddr;
     band_code_hash: string;
-    usd_deposits: string[];
+    band_oracle: HumanAddr;
+    min_tier: number;
+    status: ContractStatus;
+    usd_deposits: Uint128[];
+    validator: HumanAddr;
   };
 };
 

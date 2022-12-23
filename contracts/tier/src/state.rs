@@ -68,9 +68,11 @@ impl Config {
 
     pub fn to_answer<A: Api>(&self, api: &A) -> StdResult<QueryAnswer> {
         let admin = api.human_address(&self.admin)?;
+        let min_tier = self.usd_deposits.len().checked_add(1).unwrap() as u8;
 
         return Ok(QueryAnswer::Config {
             admin,
+            min_tier,
             validator: self.validator.clone(),
             status: self.status.into(),
             band_oracle: self.band_oracle.clone(),

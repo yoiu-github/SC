@@ -67,6 +67,7 @@
             "start_time",
             "token_contract",
             "token_contract_hash",
+            "tokens_per_tier",
             "total_amount",
             "whitelist"
           ],
@@ -100,10 +101,7 @@
               "type": "string"
             },
             "tokens_per_tier": {
-              "type": [
-                "array",
-                "null"
-              ],
+              "type": "array",
               "items": {
                 "$ref": "#/definitions/Uint128"
               }

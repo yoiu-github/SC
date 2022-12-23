@@ -1,4 +1,4 @@
-use cosmwasm_std::{HumanAddr, StdError, StdResult, Uint128};
+use cosmwasm_std::{HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -26,33 +26,11 @@ pub struct NftToken {
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     pub admin: Option<HumanAddr>,
-    pub max_payments: Vec<Uint128>,
     pub lock_periods: Vec<u64>,
     pub tier_contract: HumanAddr,
     pub tier_contract_hash: String,
     pub nft_contract: HumanAddr,
     pub nft_contract_hash: String,
-}
-
-impl InitMsg {
-    pub fn check(&self) -> StdResult<()> {
-        if self.max_payments.is_empty() {
-            return Err(StdError::generic_err("Specify max payments array"));
-        }
-
-        let is_sorted = self.max_payments.as_slice().windows(2).all(|v| v[0] > v[1]);
-        if !is_sorted {
-            return Err(StdError::generic_err(
-                "Specify max payments in decreasing order",
-            ));
-        }
-
-        if self.max_payments.len() != self.lock_periods.len() {
-            return Err(StdError::generic_err("Arrays have different size"));
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -95,7 +73,7 @@ pub enum HandleMsg {
         price: Uint128,
         payment: PaymentMethod,
         total_amount: Uint128,
-        tokens_per_tier: Option<Vec<Uint128>>,
+        tokens_per_tier: Vec<Uint128>,
         padding: Option<String>,
         whitelist: Whitelist,
     },
@@ -221,7 +199,6 @@ pub enum QueryAnswer {
         tier_contract_hash: String,
         nft_contract: HumanAddr,
         nft_contract_hash: String,
-        max_payments: Vec<Uint128>,
         lock_periods: Vec<u64>,
     },
     IdoAmount {

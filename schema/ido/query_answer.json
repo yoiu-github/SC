@@ -13,7 +13,6 @@
           "required": [
             "admin",
             "lock_periods",
-            "max_payments",
             "nft_contract",
             "nft_contract_hash",
             "tier_contract",
@@ -29,12 +28,6 @@
                 "type": "integer",
                 "format": "uint64",
                 "minimum": 0.0
-              }
-            },
-            "max_payments": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Uint128"
               }
             },
             "nft_contract": {
@@ -88,6 +81,7 @@
             "participants",
             "payment",
             "price",
+            "shared_whitelist",
             "sold_amount",
             "start_time",
             "token_contract",
@@ -115,6 +109,9 @@
             },
             "price": {
               "$ref": "#/definitions/Uint128"
+            },
+            "shared_whitelist": {
+              "type": "boolean"
             },
             "sold_amount": {
               "$ref": "#/definitions/Uint128"

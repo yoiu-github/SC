@@ -14,6 +14,7 @@
             "admin",
             "band_code_hash",
             "band_oracle",
+            "min_tier",
             "status",
             "usd_deposits",
             "validator"
@@ -27,6 +28,11 @@
             },
             "band_oracle": {
               "$ref": "#/definitions/HumanAddr"
+            },
+            "min_tier": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
             },
             "status": {
               "$ref": "#/definitions/ContractStatus"

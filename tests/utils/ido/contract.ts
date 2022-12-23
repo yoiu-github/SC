@@ -1,5 +1,5 @@
 import { Coin, SecretNetworkClient } from "secretjs";
-import { broadcastWithCheck, getExecuteMsg, Ido, Snip20, Snip721 } from "..";
+import { broadcastWithCheck, getExecuteMsg, Ido, Snip721 } from "..";
 import { BaseContract, ContractDeployInfo } from "../baseContract";
 import { NftToken } from "./types/handle-msg";
 
@@ -47,7 +47,7 @@ export class IdoContract extends BaseContract {
 
   async inWhitelist(
     client: SecretNetworkClient,
-    idoId?: number
+    idoId: number
   ): Promise<Ido.QueryAnswer.InWhitelist> {
     const query: Ido.QueryMsg.InWhitelist = {
       in_whitelist: { address: client.address, ido_id: idoId },

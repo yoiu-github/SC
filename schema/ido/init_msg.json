@@ -4,7 +4,6 @@
   "type": "object",
   "required": [
     "lock_periods",
-    "max_payments",
     "nft_contract",
     "nft_contract_hash",
     "tier_contract",
@@ -29,12 +28,6 @@
         "minimum": 0.0
       }
     },
-    "max_payments": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/Uint128"
-      }
-    },
     "nft_contract": {
       "$ref": "#/definitions/HumanAddr"
     },
@@ -50,9 +43,6 @@
   },
   "definitions": {
     "HumanAddr": {
-      "type": "string"
-    },
-    "Uint128": {
       "type": "string"
     }
   }

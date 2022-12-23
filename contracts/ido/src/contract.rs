@@ -4,7 +4,7 @@ use crate::{
         QueryMsg, ResponseStatus, Whitelist,
     },
     state::{self, Config, Ido, Purchase},
-    tier::get_tier_index,
+    tier::{get_min_tier, get_tier},
     utils::{self, assert_admin, assert_contract_active, assert_ido_admin},
 };
 use cosmwasm_std::{
@@ -13,7 +13,6 @@ use cosmwasm_std::{
 };
 use secret_toolkit_snip20::{transfer_from_msg, transfer_msg};
 use secret_toolkit_utils::{pad_handle_result, pad_query_result};
-use std::cmp::min;
 
 pub const BLOCK_SIZE: usize = 256;
 pub const USCRT: &str = "uscrt";
@@ -23,15 +22,13 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     env: Env,
     msg: InitMsg,
 ) -> InitResult {
-    msg.check()?;
-
     let admin = msg.admin.unwrap_or(env.message.sender);
     let canonical_admin = deps.api.canonical_address(&admin)?;
     let tier_contract = deps.api.canonical_address(&msg.tier_contract)?;
     let nft_contract = deps.api.canonical_address(&msg.nft_contract)?;
+    let lock_periods_len = msg.lock_periods.len();
 
-    let max_payments = msg.max_payments.into_iter().map(|p| p.u128()).collect();
-    let config = Config {
+    let mut config = Config {
         admin: canonical_admin,
         status: ContractStatus::Active as u8,
         tier_contract,
@@ -39,10 +36,21 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         tier_contract_hash: msg.tier_contract_hash,
         nft_contract_hash: msg.nft_contract_hash,
         lock_periods: msg.lock_periods,
-        max_payments,
+        min_tier: 0,
     };
 
+    let min_tier = get_min_tier(deps, &config)?;
+    config.min_tier = min_tier;
+
+    if lock_periods_len != min_tier as usize {
+        return Err(StdError::generic_err(&format!(
+            "Lock periods array must have {} items",
+            min_tier
+        )));
+    }
+
     config.save(&mut deps.storage)?;
+
     Ok(InitResponse::default())
 }
 
@@ -77,6 +85,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             ido.token_contract_hash = token_contract_hash;
             ido.price = price.u128();
             ido.total_tokens_amount = total_amount.u128();
+            ido.remaining_tokens_per_tier = tokens_per_tier.into_iter().map(|v| v.u128()).collect();
 
             if let PaymentMethod::Token {
                 contract,
@@ -86,11 +95,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                 let payment_token_contract = deps.api.canonical_address(&contract)?;
                 ido.payment_token_contract = Some(payment_token_contract);
                 ido.payment_token_hash = Some(code_hash);
-            }
-
-            if let Some(token_per_tier) = tokens_per_tier {
-                ido.remaining_tokens_per_tier =
-                    Some(token_per_tier.into_iter().map(|v| v.u128()).collect());
             }
 
             start_ido(deps, env, ido, whitelist)
@@ -172,19 +176,16 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
 
-    if let Some(token_per_tier) = ido.remaining_tokens_per_tier.as_ref() {
-        let config = Config::load(&deps.storage)?;
+    let config = Config::load(&deps.storage)?;
+    if ido.remaining_tokens_per_tier.len() != config.min_tier as usize {
+        return Err(StdError::generic_err("`tokens_per_tier` has wrong size"));
+    }
 
-        if config.max_payments.len() != token_per_tier.len() {
-            return Err(StdError::generic_err("Arrays have different length"));
-        }
-
-        let sum = token_per_tier.iter().sum::<u128>();
-        if sum != ido.total_tokens_amount {
-            return Err(StdError::generic_err(
-                "Sum of all tokens per tier must equal to the total amount of tokens",
-            ));
-        }
+    let sum = ido.remaining_tokens_per_tier.iter().sum::<u128>();
+    if sum < ido.total_tokens_amount {
+        return Err(StdError::generic_err(
+            "Sum of `tokens_per_tier` can't be less than total tokens amount",
+        ));
     }
 
     if ido.start_time >= ido.end_time {
@@ -197,10 +198,10 @@ fn start_ido<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Ido ends in the past"));
     }
 
-    match whitelist {
-        Whitelist::Empty { .. } => ido.shared_whitelist = false,
-        Whitelist::Shared { .. } => ido.shared_whitelist = true,
-    }
+    ido.shared_whitelist = match whitelist {
+        Whitelist::Shared { .. } => true,
+        Whitelist::Empty { .. } => false,
+    };
 
     let ido_id = ido.save(&mut deps.storage)?;
     let ido_whitelist = state::ido_whitelist(ido_id);
@@ -260,9 +261,10 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 ) -> HandleResult {
     assert_contract_active(&deps.storage)?;
 
-    let mut ido = Ido::load(&deps.storage, ido_id)?;
     let sender = env.message.sender;
+    let canonical_sender = deps.api.canonical_address(&sender)?;
 
+    let mut ido = Ido::load(&deps.storage, ido_id)?;
     if !ido.is_active(env.block.time) {
         return Err(StdError::generic_err("IDO is not active"));
     }
@@ -275,49 +277,29 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("Zero amount"));
     }
 
-    let total_remaining_amount = ido.remaining_amount();
-    if total_remaining_amount == 0 {
-        return Err(StdError::generic_err("All tokens are sold"));
-    }
-
     let config = Config::load(&deps.storage)?;
-    let tier = if !utils::in_whitelist(deps, &sender, ido_id)? {
-        config.min_tier_index()
+    let tier = if utils::in_whitelist(deps, &sender, ido_id)? {
+        get_tier(deps, sender.clone(), token)?
     } else {
-        get_tier_index(deps, sender.clone(), token)?
+        config.min_tier
     };
 
     let remaining_amount = ido.remaining_tokens_per_tier(tier);
-
     if remaining_amount == 0 {
-        return Err(StdError::generic_err("All tokens are sold for your tier"));
+        if ido.total_tokens_amount == ido.sold_amount {
+            return Err(StdError::generic_err("All tokens are sold"));
+        } else {
+            return Err(StdError::generic_err("All tokens are sold for your tier"));
+        }
     }
 
-    let canonical_sender = deps.api.canonical_address(&sender)?;
-    let all_user_infos_in_ido = state::user_info_in_ido(&canonical_sender);
-    let mut user_ido_info = all_user_infos_in_ido
-        .get(&deps.storage, &ido_id)
-        .unwrap_or_default();
-
-    let max_tier_payment = config.max_payments[tier as usize];
-
-    let current_payment = user_ido_info.total_payment;
-    let available_payment = max_tier_payment.checked_sub(current_payment).unwrap();
-    let max_tokens_amount = available_payment.checked_div(ido.price).unwrap();
-    if max_tokens_amount == 0 {
-        return Err(StdError::generic_err(
-            "You cannot buy more tokens with current tier",
-        ));
-    }
-
-    let can_buy_tokens = min(max_tokens_amount, remaining_amount);
-    if amount > can_buy_tokens {
-        let msg = format!("You cannot buy more than {} tokens", can_buy_tokens);
+    if amount > remaining_amount {
+        let msg = format!("You cannot buy more than {} tokens", remaining_amount);
         return Err(StdError::generic_err(&msg));
     }
 
     let payment = amount.checked_mul(ido.price).unwrap();
-    let lock_period = config.lock_periods[tier as usize];
+    let lock_period = config.lock_period(tier);
 
     let unlock_time = ido.end_time.checked_add(lock_period).unwrap();
     let tokens_amount = Uint128(amount);
@@ -329,6 +311,15 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
 
     let purchases = state::purchases(&canonical_sender, ido_id);
     purchases.push_back(&mut deps.storage, &purchase)?;
+
+    let all_user_infos_in_ido = state::user_info_in_ido(&canonical_sender);
+    let mut user_ido_info = all_user_infos_in_ido
+        .get(&deps.storage, &ido_id)
+        .unwrap_or_default();
+
+    if user_ido_info.total_payment == 0 {
+        ido.participants = ido.participants.checked_add(1).unwrap();
+    }
 
     user_ido_info.total_payment = user_ido_info.total_payment.checked_add(payment).unwrap();
     user_ido_info.total_tokens_bought = user_ido_info
@@ -353,13 +344,10 @@ fn buy_tokens<S: Storage, A: Api, Q: Querier>(
     ido.sold_amount = ido.sold_amount.checked_add(amount).unwrap();
     ido.total_payment = ido.total_payment.checked_add(payment).unwrap();
 
-    if let Some(tokens_per_tier) = ido.remaining_tokens_per_tier.as_mut() {
-        tokens_per_tier[tier as usize] = remaining_amount.checked_sub(amount).unwrap();
-    }
-
-    if current_payment == 0 {
-        ido.participants = ido.participants.checked_add(1).unwrap();
-    }
+    let tier_index = tier.checked_sub(1).unwrap() as usize;
+    ido.remaining_tokens_per_tier[tier_index] = ido.remaining_tokens_per_tier[tier_index]
+        .checked_sub(amount)
+        .unwrap();
 
     ido.save(&mut deps.storage)?;
 
@@ -432,9 +420,9 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         }
     }
 
-    if let Some(purhcase_indices) = purchase_indices {
+    if let Some(purchase_indices) = purchase_indices {
         let end = start.checked_add(limit).unwrap();
-        for index in purhcase_indices {
+        for index in purchase_indices {
             if index >= start && index < end {
                 continue;
             }
@@ -460,14 +448,14 @@ fn recv_tokens<S: Storage, A: Api, Q: Querier>(
         archived_purchases.push(&mut deps.storage, &purchase)?;
     }
 
+    if recv_amount == 0 {
+        return Err(StdError::generic_err("Nothing to receive"));
+    }
+
     let answer = to_binary(&HandleAnswer::RecvTokens {
         amount: Uint128(recv_amount),
         status: ResponseStatus::Success,
     })?;
-
-    if recv_amount == 0 {
-        return Err(StdError::generic_err("Nothing to receive"));
-    }
 
     let all_user_infos = state::user_info();
     let all_user_infos_in_ido = state::user_info_in_ido(&canonical_sender);
@@ -537,8 +525,8 @@ fn withdraw<S: Storage, A: Api, Q: Querier>(
     ido.withdrawn = true;
     ido.save(&mut deps.storage)?;
 
-    let remaining_tokens = Uint128(ido.remaining_amount());
-    if remaining_tokens.u128() == 0 {
+    let remaining_tokens = Uint128::from(ido.remaining_tokens());
+    if remaining_tokens.is_zero() {
         return Err(StdError::generic_err("Nothing to withdraw"));
     }
 
@@ -720,7 +708,7 @@ fn do_query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMs
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{state::UserInfo, tier::manual};
     use cosmwasm_std::{
@@ -729,11 +717,11 @@ mod test {
         StdResult,
     };
     use rand::{thread_rng, Rng};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn get_init_msg() -> InitMsg {
         InitMsg {
             admin: None,
-            max_payments: [2000, 1000, 500, 100].into_iter().map(Uint128).collect(),
             tier_contract: HumanAddr::from("tier"),
             tier_contract_hash: String::from("tier_hash"),
             nft_contract: HumanAddr::from("nft"),
@@ -761,12 +749,12 @@ mod test {
         let token_contract = format!("token_{}", rng.gen_range(0..1000));
         let token_contract_hash = format!("{}_hash", token_contract);
 
-        let mut start_time = rng.gen();
-        let mut end_time = rng.gen();
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        if start_time > end_time {
-            [start_time, end_time] = [end_time, start_time];
-        }
+        let end_time = start_time + rng.gen::<u64>();
 
         let price = rng.gen();
         let total_amount = rng.gen();
@@ -800,7 +788,7 @@ mod test {
             whitelist: Whitelist::Empty {
                 with: Some(whitelist),
             },
-            tokens_per_tier: Some(tokens_per_tier),
+            tokens_per_tier,
             padding: None,
         }
     }
@@ -819,17 +807,7 @@ mod test {
 
     #[test]
     fn initialize() {
-        let mut msg = get_init_msg();
-
-        msg.max_payments = Vec::new();
-        let error = extract_error(initialize_with(msg.clone()));
-        assert!(error.contains("Specify max payments array"));
-
-        msg.max_payments = [4, 3, 1, 2].into_iter().map(Uint128).collect();
-        let error = extract_error(initialize_with(msg.clone()));
-        assert!(error.contains("Specify max payments in decreasing order"));
-
-        msg.max_payments = [4, 3, 2, 1].into_iter().map(Uint128).collect();
+        let msg = get_init_msg();
         let deps = initialize_with(msg.clone()).unwrap();
 
         let config = Config::load(&deps.storage).unwrap();
@@ -840,6 +818,7 @@ mod test {
 
         let tier_contract = deps.api.canonical_address(&msg.tier_contract).unwrap();
         let nft_contract = deps.api.canonical_address(&msg.nft_contract).unwrap();
+        let min_tier = manual::get_min_tier(&deps, &config).unwrap();
 
         assert_eq!(config.admin, admin);
         assert_eq!(config.lock_periods, msg.lock_periods);
@@ -847,13 +826,21 @@ mod test {
         assert_eq!(config.tier_contract_hash, msg.tier_contract_hash);
         assert_eq!(config.nft_contract, nft_contract);
         assert_eq!(config.nft_contract_hash, msg.nft_contract_hash);
-        assert_eq!(
-            config.max_payments,
-            msg.max_payments
-                .into_iter()
-                .map(|p| p.u128())
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(config.min_tier, min_tier);
+    }
+
+    #[test]
+    fn initialize_with_wrong_lock_periods() {
+        let mut msg = get_init_msg();
+        msg.lock_periods = vec![1, 2, 3];
+
+        let mut deps = mock_dependencies(20, &[]);
+        let env = mock_env("admin", &[]);
+
+        let response = init(&mut deps, env, msg);
+        let error = extract_error(response);
+
+        assert!(error.contains("Lock periods array must have 4 items"));
     }
 
     #[test]
@@ -933,9 +920,12 @@ mod test {
                 price: Uint128::from(1u128),
                 payment: PaymentMethod::Native,
                 total_amount: Uint128::from(100u128),
-                tokens_per_tier: None,
                 padding: None,
                 whitelist: Whitelist::Empty { with: None },
+                tokens_per_tier: vec![100u128, 100, 100, 100]
+                    .into_iter()
+                    .map(Uint128::from)
+                    .collect(),
             };
 
             let response = handle(&mut deps, env.clone(), start_ido_msg);
@@ -961,9 +951,12 @@ mod test {
                 price: Uint128::from(1u128),
                 payment: PaymentMethod::Native,
                 total_amount: Uint128::from(100u128),
-                tokens_per_tier: None,
                 padding: None,
                 whitelist: Whitelist::Empty { with: None },
+                tokens_per_tier: vec![100u128, 100, 100, 100]
+                    .into_iter()
+                    .map(Uint128::from)
+                    .collect(),
             };
 
             let response = handle(&mut deps, env.clone(), start_ido_msg);
@@ -992,11 +985,14 @@ mod test {
             price: Uint128::from(1u128),
             payment: PaymentMethod::Native,
             total_amount: Uint128::from(100u128),
-            tokens_per_tier: None,
             padding: None,
             whitelist: Whitelist::Empty {
                 with: Some(allowed_addresses.clone()),
             },
+            tokens_per_tier: vec![100u128, 100, 100, 100]
+                .into_iter()
+                .map(Uint128::from)
+                .collect(),
         };
 
         let response = handle(&mut deps, env, start_ido_msg).unwrap();
@@ -1041,11 +1037,14 @@ mod test {
             price: Uint128::from(1u128),
             payment: PaymentMethod::Native,
             total_amount: Uint128::from(100u128),
-            tokens_per_tier: None,
             padding: None,
             whitelist: Whitelist::Shared {
                 with_blocked: Some(blocked_addresses.clone()),
             },
+            tokens_per_tier: vec![100u128, 100, 100, 100]
+                .into_iter()
+                .map(Uint128::from)
+                .collect(),
         };
 
         let response = handle(&mut deps, env, start_ido_msg).unwrap();
@@ -1198,9 +1197,10 @@ mod test {
                 .clone()
                 .into_iter()
                 .map(Uint128)
-                .collect();
+                .collect::<Vec<_>>();
 
-            tokens_per_tier.replace(new_tokens_per_tier);
+            tokens_per_tier.clear();
+            tokens_per_tier.extend(&new_tokens_per_tier);
         }
 
         new_tokens_per_tier
@@ -1217,14 +1217,12 @@ mod test {
 
         let response = handle(&mut deps, env.clone(), msg.clone());
         let error = extract_error(response);
-        assert!(error.contains("Arrays have different length"));
+        assert!(error.contains("`tokens_per_tier` has wrong size"));
 
         change_tokens_per_tier(&mut msg, Some(vec![1, 2, 3, 4]));
         let response = handle(&mut deps, env.clone(), msg.clone());
         let error = extract_error(response);
-        assert!(
-            error.contains("Sum of all tokens per tier must equal to the total amount of tokens")
-        );
+        assert!(error.contains("Sum of `tokens_per_tier` can't be less than total tokens amount"));
 
         let tokens_per_tier = change_tokens_per_tier(&mut msg, None);
         let response = handle(&mut deps, env, msg).unwrap();
@@ -1235,7 +1233,7 @@ mod test {
         };
 
         let ido = Ido::load(&deps.storage, ido_id).unwrap();
-        assert_eq!(ido.remaining_tokens_per_tier, Some(tokens_per_tier));
+        assert_eq!(ido.remaining_tokens_per_tier, tokens_per_tier);
     }
 
     #[test]
@@ -1309,6 +1307,7 @@ mod test {
         ido.end_time = 10;
         ido.total_tokens_amount = 100;
         ido.sold_amount = 100;
+        ido.remaining_tokens_per_tier = vec![40, 30, 20, 10];
         let ido_id = ido.save(&mut deps.storage).unwrap();
 
         let buy_tokens_msg = HandleMsg::BuyTokens {
@@ -1322,18 +1321,18 @@ mod test {
         let error = extract_error(response);
 
         assert!(error.contains("All tokens are sold"));
-        assert_eq!(ido.remaining_amount(), 0);
+        assert_eq!(ido.remaining_tokens(), 0);
 
         ido.sold_amount = 0;
-        ido.remaining_tokens_per_tier = Some(vec![0, 0, 0, 0]);
+        ido.remaining_tokens_per_tier = vec![0, 0, 0, 0];
         ido.save(&mut deps.storage).unwrap();
 
         let response = handle(&mut deps, env, buy_tokens_msg);
         let error = extract_error(response);
 
         assert!(error.contains("All tokens are sold for your tier"));
-        assert_eq!(ido.remaining_amount(), 100);
-        assert_eq!(ido.remaining_tokens_per_tier(0), 0);
+        assert_eq!(ido.remaining_tokens(), 100);
+        assert_eq!(ido.remaining_tokens_per_tier(1), 0);
     }
 
     #[test]
@@ -1405,7 +1404,7 @@ mod test {
         ido.payment_token_hash = Some(String::new());
         ido.payment_token_contract = Some(canonical_token_contract);
         ido.total_tokens_amount = 90;
-        ido.remaining_tokens_per_tier = Some(vec![30, 30, 30, 0]);
+        ido.remaining_tokens_per_tier = vec![30, 30, 30, 0];
 
         let ido_id = ido.save(&mut deps.storage).unwrap();
         let buy_tokens_msg = HandleMsg::BuyTokens {
@@ -1438,74 +1437,6 @@ mod test {
 
     fn buy_tokens_with_native_payment() {
         let init_msg = get_init_msg();
-        let mut deps = initialize_with(init_msg.clone()).unwrap();
-
-        let ido_admin = HumanAddr::from("ido_admin");
-        let canonical_ido_admin = deps.api.canonical_address(&ido_admin).unwrap();
-
-        let user = HumanAddr::from("user");
-
-        let max_payments = init_msg.max_payments;
-        let lock_periods = init_msg.lock_periods;
-        let token_contract = HumanAddr::from("token_contract");
-        let canonical_token_contract = deps.api.canonical_address(&token_contract).unwrap();
-
-        let mut ido = Ido::default();
-        ido.admin = canonical_ido_admin;
-        ido.shared_whitelist = true;
-        ido.start_time = 0;
-        ido.end_time = 10;
-        ido.payment_token_contract = None;
-        ido.payment_token_hash = None;
-        ido.total_tokens_amount = 100_000;
-        ido.price = 2;
-        ido.token_contract = canonical_token_contract;
-
-        let ido_id = ido.save(&mut deps.storage).unwrap();
-        let buy_tokens_msg = HandleMsg::BuyTokens {
-            ido_id,
-            amount: Uint128::zero(),
-            token: None,
-            padding: None,
-        };
-
-        manual::set_tier(1);
-        let tier_index = 0;
-
-        let tokens_amount = max_payments[0].u128() / ido.price;
-        let mut env = mock_env(&user, &coins(tokens_amount, USCRT));
-        env.block.time = 5;
-
-        let response = handle(&mut deps, env.clone(), buy_tokens_msg).unwrap();
-        let data = response.data.unwrap();
-
-        match from_binary(&data).unwrap() {
-            HandleAnswer::BuyTokens {
-                amount,
-                unlock_time,
-                status,
-            } => {
-                assert_eq!(amount.u128(), tokens_amount);
-                assert_eq!(unlock_time, lock_periods[tier_index] + ido.end_time);
-                assert_eq!(status, ResponseStatus::Success);
-            }
-            _ => unreachable!(),
-        }
-
-        let messages = response.messages;
-        assert_eq!(messages.len(), 1);
-        assert_eq!(
-            messages[0],
-            CosmosMsg::Bank(BankMsg::Send {
-                from_address: env.contract.address,
-                to_address: ido_admin,
-                amount: coins(tokens_amount, USCRT),
-            })
-        );
-    }
-
-    fn buy_tokens_with_tokens_per_tier() {
-        let init_msg = get_init_msg();
         let mut deps = initialize_with(init_msg).unwrap();
 
         let ido_admin = HumanAddr::from("ido_admin");
@@ -1528,7 +1459,7 @@ mod test {
         ido.total_tokens_amount = 100;
         ido.price = 2;
         ido.token_contract = canonical_token_contract;
-        ido.remaining_tokens_per_tier = Some(tokens_per_tier.clone());
+        ido.remaining_tokens_per_tier = tokens_per_tier.clone();
 
         let ido_id = ido.save(&mut deps.storage).unwrap();
 
@@ -1572,7 +1503,6 @@ mod test {
         let init_msg = get_init_msg();
         let mut deps = initialize_with(init_msg.clone()).unwrap();
 
-        let max_payments = init_msg.max_payments;
         let lock_periods = init_msg.lock_periods;
 
         let ido_admin = HumanAddr::from("ido_admin");
@@ -1602,44 +1532,49 @@ mod test {
         ido.total_tokens_amount = 100_000;
         ido.price = 2;
         ido.token_contract = canonical_token_contract;
+        ido.remaining_tokens_per_tier = vec![40_000, 30_000, 20_000, 10_000];
 
         let ido_id = ido.save(&mut deps.storage).unwrap();
 
         let user_info_list = state::user_info();
         let user_info_in_ido_list = state::user_info_in_ido(&canonical_user);
         let config = Config::load(&deps.storage).unwrap();
-        let min_tier = config.min_tier();
+        let min_tier = config.min_tier;
 
-        let mut bought_amount = 0;
         for tier in (1..=4).rev() {
             manual::set_tier(tier);
 
-            let tier_index = get_tier_index(&deps, user.clone(), None).unwrap() as usize;
-            let max_tokens_amount = max_payments[tier_index].u128() / ido.price;
-            let tokens_amount = max_tokens_amount - bought_amount;
-
-            bought_amount = max_tokens_amount;
+            let tier_index = tier.checked_sub(1).unwrap() as usize;
+            let max_tokens_amount = ido.remaining_tokens_per_tier[tier_index];
 
             let buy_too_much_tokens = HandleMsg::BuyTokens {
                 ido_id,
-                amount: Uint128::from(tokens_amount + 1),
+                amount: Uint128::from(max_tokens_amount + 1),
                 token: None,
                 padding: None,
             };
 
             let response = handle(&mut deps, env.clone(), buy_too_much_tokens.clone());
             let error = extract_error(response);
+
             assert!(error.contains(&format!(
                 "You cannot buy more than {} tokens",
-                tokens_amount
+                max_tokens_amount
             )));
 
             let buy_tokens_msg = HandleMsg::BuyTokens {
                 ido_id,
-                amount: Uint128::from(tokens_amount),
+                amount: Uint128::from(max_tokens_amount),
                 token: None,
                 padding: None,
             };
+
+            let user_info = user_info_list
+                .get(&deps.storage, &canonical_user)
+                .unwrap_or_default();
+
+            let initial_total_payment = user_info.total_payment;
+            let initial_tokens_bought = user_info.total_tokens_bought;
 
             let response = handle(&mut deps, env.clone(), buy_tokens_msg.clone()).unwrap();
             let data = response.data.unwrap();
@@ -1650,7 +1585,7 @@ mod test {
                     unlock_time,
                     status,
                 } => {
-                    assert_eq!(amount.u128(), tokens_amount);
+                    assert_eq!(amount.u128(), max_tokens_amount);
                     assert_eq!(unlock_time, lock_periods[tier_index] + ido.end_time);
                     assert_eq!(status, ResponseStatus::Success);
                 }
@@ -1664,7 +1599,7 @@ mod test {
                 transfer_from_msg(
                     user.clone(),
                     ido_admin.clone(),
-                    Uint128::from(tokens_amount * ido.price),
+                    Uint128::from(max_tokens_amount * ido.price),
                     None,
                     None,
                     BLOCK_SIZE,
@@ -1675,9 +1610,15 @@ mod test {
             );
 
             let user_info = user_info_list.get(&deps.storage, &canonical_user).unwrap();
-            assert_eq!(user_info.total_payment, max_tokens_amount * ido.price);
-            assert_eq!(user_info.total_tokens_bought, max_tokens_amount);
             assert_eq!(user_info.total_tokens_received, 0);
+            assert_eq!(
+                user_info.total_tokens_bought,
+                max_tokens_amount + initial_tokens_bought
+            );
+            assert_eq!(
+                user_info.total_payment,
+                max_tokens_amount * ido.price + initial_total_payment
+            );
 
             let user_ido_info = user_info_in_ido_list.get(&deps.storage, &ido_id).unwrap();
             assert_eq!(user_info, user_ido_info);
@@ -1695,7 +1636,12 @@ mod test {
 
             let response = handle(&mut deps, env.clone(), buy_another_token.clone());
             let error = extract_error(response);
-            assert!(error.contains("You cannot buy more tokens with current tier",));
+
+            if tier == 1 {
+                assert!(error.contains("All tokens are sold"));
+            } else {
+                assert!(error.contains("All tokens are sold for your tier"));
+            }
         }
     }
 
@@ -1703,7 +1649,6 @@ mod test {
     fn buy_tokens() {
         buy_tokens_blacklisted();
         buy_tokens_with_native_payment();
-        buy_tokens_with_tokens_per_tier();
         buy_tokens_state_check();
     }
 

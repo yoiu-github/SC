@@ -17,22 +17,20 @@ async function checkMaxDeposit(
   client: SecretNetworkClient,
   contract: Ido.IdoContract,
   idoId: number,
-  price: number,
-  maxPayments: number,
+  tokensAmount: number,
   tokenId?: string
 ) {
-  const maxTokensAmount = Math.floor(maxPayments / price);
-  await contract.buyTokens(client, idoId, maxTokensAmount, tokenId);
+  await contract.buyTokens(client, idoId, tokensAmount, tokenId);
   await assert.rejects(
     async () => {
       await contract.buyTokens(client, idoId, 1, tokenId);
     },
     (err: Error) => {
       const maxTierMessage = "You cannot buy more tokens with current tier";
-      const allTierTokensSold = "All tokens are sold for your tier";
+      const allTokensSold = "All tokens are sold";
       return (
         err.message.indexOf(maxTierMessage) >= 0 ||
-        err.message.indexOf(allTierTokensSold) >= 0
+        err.message.indexOf(allTokensSold) >= 0
       );
     }
   );
@@ -50,8 +48,7 @@ describe("IDO", () => {
   let startIdoMsg: Ido.HandleMsg.StartIdo;
 
   const tierDeposits = ["1000", "500", "200", "100"];
-  const idoPayments = ["10000", "5000", "3000", "2000", "1000"];
-  const tokensPerTier = ["19900", "40", "30", "20", "10"];
+  const tokensPerTier = ["5000", "4000", "3000", "2000", "1000"];
 
   const idoLockPeriods = [10, 10, 10, 10, 10];
   const idoTotalAmount = tokensPerTier.reduce(
@@ -113,7 +110,6 @@ describe("IDO", () => {
     await tierContract.init(admin, initTierMsg);
 
     const initIdoMsg: Ido.InitMsg = {
-      max_payments: idoPayments,
       lock_periods: idoLockPeriods,
       tier_contract: tierContract.contractInfo.address,
       tier_contract_hash: tierContract.contractInfo.codeHash,
@@ -143,6 +139,7 @@ describe("IDO", () => {
         token_contract_hash: idoToken.contractInfo.codeHash,
         price: price.toString(),
         total_amount: idoTotalAmount.toString(),
+        tokens_per_tier: tokensPerTier,
         whitelist: { empty: {} },
         payment: {
           token: {
@@ -181,7 +178,7 @@ describe("IDO", () => {
 
   it("Try to buy tokens before IDO starts", async () => {
     user = await getUser(endpoint, chainId, 1);
-    await mintTo(user, idoTotalAmount);
+    await mintTo(user, idoTotalAmount * price);
 
     await assert.rejects(
       async () => {
@@ -204,40 +201,38 @@ describe("IDO", () => {
       assert.equal(tierUserInfo.user_info.tier, tier);
 
       const tierIndex = tier - 1;
-      const lastMaxPayments = Number.parseInt(
-        idoPayments.at(tierIndex + 1) || "0"
-      );
-
-      const currentMaxPayments = Number.parseInt(idoPayments[tierIndex]);
-      const payment = currentMaxPayments - lastMaxPayments;
+      const tokensAmount = Number.parseInt(tokensPerTier[tierIndex]);
 
       const initialIdoOwnerBalance = await paymentToken.getBalance(idoOwner);
-      await checkMaxDeposit(user, idoContract, idoId, price, payment);
+      await checkMaxDeposit(user, idoContract, idoId, tokensAmount);
+
+      const totalTokensBought = tokensPerTier
+        .slice(tierIndex)
+        .reduce((sum, v) => sum + Number.parseInt(v), 0);
+
+      const totalPayment = totalTokensBought * price;
 
       const userInfo = await idoContract.userInfo(user);
-      assert.equal(userInfo.user_info.total_payment, currentMaxPayments);
+      assert.equal(userInfo.user_info.total_payment, totalPayment);
       assert.equal(userInfo.user_info.total_tokens_received, 0);
-      assert.equal(
-        userInfo.user_info.total_tokens_bought,
-        currentMaxPayments / price
-      );
+      assert.equal(userInfo.user_info.total_tokens_bought, totalTokensBought);
 
       const userInfoIdo = await idoContract.userInfo(user, idoId);
       assert.deepEqual(userInfo, userInfoIdo);
 
       const balance = await paymentToken.getBalance(idoOwner);
-      assert.equal(balance - initialIdoOwnerBalance, payment);
+      assert.equal(balance - initialIdoOwnerBalance, tokensAmount * price);
 
       const idoInfo = await idoContract.idoInfo(idoOwner, idoId);
-      assert.equal(idoInfo.ido_info.total_payment, currentMaxPayments);
+      assert.equal(idoInfo.ido_info.total_payment, totalPayment);
 
       const response = await idoContract.purchases(user, idoId);
       const purchases = response.purchases.purchases;
       const lastPurchase = purchases[purchases.length - 1];
-      const amount = response.purchases.amount;
+      const purchasesAmount = response.purchases.amount;
 
-      assert.equal(lastPurchase.tokens_amount, payment / price);
-      assert.equal(amount, 5 - tierIndex);
+      assert.equal(lastPurchase.tokens_amount, tokensAmount);
+      assert.equal(purchasesAmount, 5 - tierIndex);
       assert.equal(
         idoInfo.ido_info.end_time + idoLockPeriods[tierIndex],
         lastPurchase.unlock_time
@@ -284,10 +279,7 @@ describe("IDO", () => {
     await idoContract.recvTokens(user, idoId);
 
     const balance = await idoToken.getBalance(user);
-    assert.equal(
-      balance,
-      initialBalance + Number.parseInt(idoPayments[0]) / price
-    );
+    assert.equal(balance, initialBalance + idoTotalAmount);
 
     const purchases = await idoContract.purchases(user, idoId);
     assert.equal(purchases.purchases.amount, 0);
@@ -313,6 +305,7 @@ describe("IDO", () => {
         token_contract_hash: idoToken.contractInfo.codeHash,
         price: price.toString(),
         total_amount: idoTotalAmount.toString(),
+        tokens_per_tier: tokensPerTier,
         whitelist: { shared: {} },
         payment: {
           token: {
@@ -331,13 +324,13 @@ describe("IDO", () => {
   });
 
   it("Buy tokens with NFT (private metadata)", async () => {
-    const mintAmount = Number.parseInt(idoPayments[0]);
+    const tier = 3;
+    const tierIndex = tier - 1;
+    const tokensAmount = Number.parseInt(tokensPerTier[tierIndex]);
+    const mintAmount = tokensAmount * price;
+
     user = await getUser(endpoint, chainId, 2);
-
     await mintTo(user, mintAmount);
-
-    const tier = 1;
-    const maxPayments = Number.parseInt(idoPayments[0]);
 
     const mintResponse = await nftContract.mint(admin, {
       mint_nft: {
@@ -361,18 +354,20 @@ describe("IDO", () => {
       user,
       idoContract,
       idoId,
-      price,
-      maxPayments,
+      tokensAmount,
       mintResponse.mint_nft.token_id
     );
   });
 
   it("Buy tokens with NFT (public metadata)", async () => {
-    const mintAmount = Number.parseInt(idoPayments[0]);
-    user = await getUser(endpoint, chainId, 3);
+    const tier = 2;
+    const tierIndex = tier - 1;
+    const tokensAmount = Number.parseInt(tokensPerTier[tierIndex]);
+    const mintAmount = tokensAmount * price;
+
+    user = await getUser(endpoint, chainId, 2);
     await mintTo(user, mintAmount);
 
-    const tier = 1;
     const mintResponse = await nftContract.mint(admin, {
       mint_nft: {
         owner: user.address,
@@ -401,16 +396,12 @@ describe("IDO", () => {
       },
     });
 
-    const maxPayments = Number.parseInt(idoPayments[0]);
-    tokenId = mintResponse.mint_nft.token_id;
-
     await checkMaxDeposit(
       user,
       idoContract,
       idoId,
-      price,
-      maxPayments,
-      tokenId
+      tokensAmount,
+      mintResponse.mint_nft.token_id
     );
   });
 
@@ -418,19 +409,13 @@ describe("IDO", () => {
     user = await getUser(endpoint, chainId, 0);
     await idoContract.addWhitelist(idoOwner, user.address, idoId);
 
-    const mintAmount = Number.parseInt(idoPayments[0]);
+    const tier = 5;
+    const tierIndex = tier - 1;
+    const tokensAmount = Number.parseInt(tokensPerTier[tierIndex]);
+    const mintAmount = tokensAmount * price;
     await mintTo(user, mintAmount);
 
-    // Tier = 5
-    const maxPayments = Number.parseInt(idoPayments[4]);
-    await checkMaxDeposit(
-      user,
-      idoContract,
-      idoId,
-      price,
-      maxPayments,
-      tokenId
-    );
+    await checkMaxDeposit(user, idoContract, idoId, tokensAmount, tokenId);
   });
 
   it("Start IDO with shared whitelist", async () => {
@@ -461,14 +446,21 @@ describe("IDO", () => {
   });
 
   it("Buy tokens in blacklist", async () => {
-    await tierContract.setTier(user, 4, bandContract);
+    const tier = 4;
+    const tierIndex = tier - 1;
+    await tierContract.setTier(user, tier, bandContract);
     const userInfo = await tierContract.userInfo(user);
-    assert.equal(userInfo.user_info.tier, 4);
+    assert.equal(userInfo.user_info.tier, tier);
 
-    let payment = Number.parseInt(idoPayments[4]);
-    user = await getUser(endpoint, chainId, 0);
+    const minTier = await tierContract
+      .config(admin)
+      .then((c) => c.config.min_tier);
+
+    const minTierIndex = minTier - 1;
+    const tokensAmount = Number.parseInt(tokensPerTier[minTierIndex]);
+
     await mintTo(user, idoTotalAmount * price);
-    await checkMaxDeposit(user, idoContract, idoId, price, payment);
+    await checkMaxDeposit(user, idoContract, idoId, tokensAmount);
   });
 
   it("Remove user from blacklist", async () => {
@@ -481,11 +473,12 @@ describe("IDO", () => {
   });
 
   it("Buy tokens in whitelist", async () => {
-    let payment =
-      Number.parseInt(idoPayments[3]) - Number.parseInt(idoPayments[4]);
+    const tier = 4;
+    const tierIndex = tier - 1;
+    const tokensAmount = Number.parseInt(tokensPerTier[tierIndex]);
 
-    await mintTo(user, idoTotalAmount * price);
-    await checkMaxDeposit(user, idoContract, idoId, price, payment);
+    await mintTo(user, tokensAmount * price);
+    await checkMaxDeposit(user, idoContract, idoId, tokensAmount);
   });
 
   it("Start IDO with specified tokens per tier", async () => {
@@ -517,22 +510,6 @@ describe("IDO", () => {
     idoId = response.start_ido.ido_id;
   });
 
-  for (let tier = 5; tier >= 1; tier--) {
-    it(`Buy tokens with Tier = ${tier}`, async () => {
-      await tierContract.setTier(user, tier, bandContract);
-      const tierIndex = tier - 1;
-
-      let maxPayments: number;
-      if (tier == 1) {
-        maxPayments = Number.parseInt(idoPayments[tierIndex]) - 1000;
-      } else {
-        maxPayments = Number.parseInt(tokensPerTier[tierIndex]) * price;
-      }
-
-      await checkMaxDeposit(user, idoContract, idoId, price, maxPayments);
-    });
-  }
-
   it("Start IDO with native payment", async () => {
     idoOwner = await getUser(endpoint, chainId, 0);
     await mintTo(idoOwner, idoTotalAmount, idoToken);
@@ -549,6 +526,7 @@ describe("IDO", () => {
         total_amount: idoTotalAmount.toString(),
         payment: "native",
         whitelist: { empty: {} },
+        tokens_per_tier: tokensPerTier,
       },
     };
 

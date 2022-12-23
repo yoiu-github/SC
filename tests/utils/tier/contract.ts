@@ -1,5 +1,5 @@
 import { SecretNetworkClient } from "secretjs";
-import { Band, broadcastWithCheck, currentTime, getExecuteMsg, Tier } from "..";
+import { Band, broadcastWithCheck, getExecuteMsg, Tier } from "..";
 import { BaseContract } from "../baseContract";
 
 export class Contract extends BaseContract {
