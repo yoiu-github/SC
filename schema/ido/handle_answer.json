@@ -50,8 +50,7 @@
           "type": "object",
           "required": [
             "ido_id",
-            "status",
-            "whitelist_size"
+            "status"
           ],
           "properties": {
             "ido_id": {
@@ -61,11 +60,6 @@
             },
             "status": {
               "$ref": "#/definitions/ResponseStatus"
-            },
-            "whitelist_size": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
             }
           }
         }
@@ -80,17 +74,11 @@
         "whitelist_add": {
           "type": "object",
           "required": [
-            "status",
-            "whitelist_size"
+            "status"
           ],
           "properties": {
             "status": {
               "$ref": "#/definitions/ResponseStatus"
-            },
-            "whitelist_size": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
             }
           }
         }
@@ -105,17 +93,11 @@
         "whitelist_remove": {
           "type": "object",
           "required": [
-            "status",
-            "whitelist_size"
+            "status"
           ],
           "properties": {
             "status": {
               "$ref": "#/definitions/ResponseStatus"
-            },
-            "whitelist_size": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
             }
           }
         }

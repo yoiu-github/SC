@@ -73,39 +73,6 @@
     {
       "type": "object",
       "required": [
-        "whitelist"
-      ],
-      "properties": {
-        "whitelist": {
-          "type": "object",
-          "required": [
-            "ido_id",
-            "limit",
-            "start"
-          ],
-          "properties": {
-            "ido_id": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "limit": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "start": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "ido_list_owned_by"
       ],
       "properties": {

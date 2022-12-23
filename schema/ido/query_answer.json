@@ -162,34 +162,6 @@
     {
       "type": "object",
       "required": [
-        "whitelist"
-      ],
-      "properties": {
-        "whitelist": {
-          "type": "object",
-          "required": [
-            "addresses",
-            "amount"
-          ],
-          "properties": {
-            "addresses": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/HumanAddr"
-              }
-            },
-            "amount": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0.0
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
         "ido_list_owned_by"
       ],
       "properties": {
